@@ -1,0 +1,19 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "MSVC x64",
+      "compilerPath": "D:/VIsualStudio/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
+      "intelliSenseMode": "windows-msvc-x64",
+      "cppStandard": "c++20",
+      "cStandard": "c17",
+      "defines": [
+        "WIN32_LEAN_AND_MEAN",
+        "NOMINMAX"
+      ],
+      "includePath": [
+        "${workspaceFolder}/include"
+      ]
+    }
+  ]
+}
