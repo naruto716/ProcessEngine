@@ -18,6 +18,7 @@ public:
     virtual ~IProcessBackend() = default;
 
     [[nodiscard]] virtual core::ProcessId pid() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t pointerSize() const noexcept = 0;
 
     [[nodiscard]] virtual std::vector<core::ModuleInfo> modules() const = 0;
     [[nodiscard]] virtual std::optional<core::ModuleInfo> findModule(std::string_view name) const = 0;

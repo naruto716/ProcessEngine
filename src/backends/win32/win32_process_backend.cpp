@@ -3,6 +3,7 @@
 #include <TlHelp32.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -209,6 +210,41 @@ private:
     return stream.str();
 }
 
+[[nodiscard]] std::size_t determinePointerSize(HANDLE processHandle) noexcept {
+    using IsWow64Process2Fn = BOOL(WINAPI*)(HANDLE, USHORT*, USHORT*);
+
+    const auto kernel32 = ::GetModuleHandleW(L"kernel32.dll");
+    if (kernel32 != nullptr) {
+        const auto isWow64Process2 = reinterpret_cast<IsWow64Process2Fn>(
+            ::GetProcAddress(kernel32, "IsWow64Process2"));
+        if (isWow64Process2 != nullptr) {
+            USHORT processMachine = IMAGE_FILE_MACHINE_UNKNOWN;
+            USHORT nativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
+            if (isWow64Process2(processHandle, &processMachine, &nativeMachine) != FALSE) {
+                if (processMachine != IMAGE_FILE_MACHINE_UNKNOWN) {
+                    return sizeof(std::uint32_t);
+                }
+
+                switch (nativeMachine) {
+                case IMAGE_FILE_MACHINE_AMD64:
+                case IMAGE_FILE_MACHINE_ARM64:
+                case IMAGE_FILE_MACHINE_IA64:
+                    return sizeof(std::uint64_t);
+                default:
+                    return sizeof(std::uint32_t);
+                }
+            }
+        }
+    }
+
+    BOOL isWow64 = FALSE;
+    if (::IsWow64Process(processHandle, &isWow64) != FALSE && isWow64 != FALSE) {
+        return sizeof(std::uint32_t);
+    }
+
+    return sizeof(void*);
+}
+
 [[nodiscard]] std::optional<core::Address> nearestAllocBaseInFreeRegion(
     const MEMORY_BASIC_INFORMATION& information,
     core::Address nearAddress,
@@ -312,10 +348,6 @@ std::unique_ptr<Win32ProcessBackend> Win32ProcessBackend::open(core::ProcessId p
     return std::unique_ptr<Win32ProcessBackend>(new Win32ProcessBackend(handle.release(), pid));
 }
 
-std::unique_ptr<Win32ProcessBackend> Win32ProcessBackend::attachCurrent(AccessMask access) {
-    return open(::GetCurrentProcessId(), access);
-}
-
 Win32ProcessBackend::AccessMask Win32ProcessBackend::defaultAccess() noexcept {
     return PROCESS_QUERY_INFORMATION |
         PROCESS_VM_READ |
@@ -326,12 +358,14 @@ Win32ProcessBackend::AccessMask Win32ProcessBackend::defaultAccess() noexcept {
 
 Win32ProcessBackend::Win32ProcessBackend(HANDLE handle, core::ProcessId pid) noexcept
     : handle_(handle),
-      pid_(pid) {
+      pid_(pid),
+      pointerSize_(determinePointerSize(handle)) {
 }
 
 Win32ProcessBackend::Win32ProcessBackend(Win32ProcessBackend&& other) noexcept
     : handle_(std::exchange(other.handle_, nullptr)),
-      pid_(std::exchange(other.pid_, 0)) {
+      pid_(std::exchange(other.pid_, 0)),
+      pointerSize_(std::exchange(other.pointerSize_, sizeof(void*))) {
 }
 
 Win32ProcessBackend& Win32ProcessBackend::operator=(Win32ProcessBackend&& other) noexcept {
@@ -341,6 +375,7 @@ Win32ProcessBackend& Win32ProcessBackend::operator=(Win32ProcessBackend&& other)
         }
         handle_ = std::exchange(other.handle_, nullptr);
         pid_ = std::exchange(other.pid_, 0);
+        pointerSize_ = std::exchange(other.pointerSize_, sizeof(void*));
     }
 
     return *this;
@@ -354,6 +389,10 @@ Win32ProcessBackend::~Win32ProcessBackend() {
 
 core::ProcessId Win32ProcessBackend::pid() const noexcept {
     return pid_;
+}
+
+std::size_t Win32ProcessBackend::pointerSize() const noexcept {
+    return pointerSize_;
 }
 
 std::vector<core::ModuleInfo> Win32ProcessBackend::modules() const {

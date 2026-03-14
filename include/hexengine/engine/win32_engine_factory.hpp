@@ -12,7 +12,6 @@ public:
             backends::win32::Win32ProcessBackend::defaultAccess()) noexcept;
 
     [[nodiscard]] std::unique_ptr<EngineSession> open(core::ProcessId pid) const override;
-    [[nodiscard]] std::unique_ptr<EngineSession> attachCurrent() const override;
 
 private:
     backends::win32::Win32ProcessBackend::AccessMask access_;

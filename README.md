@@ -23,7 +23,8 @@ The old Visual Studio install was the broken one. The current 2026 install is us
 
 - `CMakeLists.txt`: the main CMake project file
 - `CMakePresets.json`: named configure/build presets for both MSVC and MinGW
-- `docs/architecture.md`: detailed walkthrough of the current `hexengine` design and code layout
+- `docs/README.md`: wiki home for the engine docs
+- `docs/*.md`: usage, architecture, pointers, backend, and testing guides
 - `include/hexengine/core/*`: engine-neutral value types and pattern parsing
 - `include/hexengine/backend/*`: backend interfaces
 - `include/hexengine/backends/win32/*`: the current Win32 user-mode backend
@@ -114,6 +115,7 @@ The project now builds the `hexengine_engine` library. The memory subsystem is s
 - `hexengine::backends::win32::Win32ProcessBackend`: the current concrete backend for Win32 user-mode access
 - `hexengine::engine::ProcessScanner`: region-aware AOB scanning built on top of a backend
 - `hexengine::engine::SymbolRepository`: case-insensitive symbol storage
+- `hexengine::engine::PointerResolver`: multilevel pointer-chain resolution, including CE-style string wrappers such as `[[game.exe+0x123]+0x18]+0x30`
 - `hexengine::engine::AllocationRepository`: allocation state storage
 - `hexengine::engine::AllocationService`: CE-style allocation behavior on top of a backend and symbol store
 - `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services

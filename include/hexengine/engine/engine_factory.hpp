@@ -11,7 +11,6 @@ public:
     virtual ~IEngineFactory() = default;
 
     [[nodiscard]] virtual std::unique_ptr<EngineSession> open(core::ProcessId pid) const = 0;
-    [[nodiscard]] virtual std::unique_ptr<EngineSession> attachCurrent() const = 0;
 };
 
 }  // namespace hexengine::engine

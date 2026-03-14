@@ -16,8 +16,6 @@ public:
     [[nodiscard]] static std::unique_ptr<Win32ProcessBackend> open(
         core::ProcessId pid,
         AccessMask access = defaultAccess());
-    [[nodiscard]] static std::unique_ptr<Win32ProcessBackend> attachCurrent(
-        AccessMask access = defaultAccess());
     [[nodiscard]] static AccessMask defaultAccess() noexcept;
 
     Win32ProcessBackend(Win32ProcessBackend&& other) noexcept;
@@ -29,6 +27,7 @@ public:
     ~Win32ProcessBackend() override;
 
     [[nodiscard]] core::ProcessId pid() const noexcept override;
+    [[nodiscard]] std::size_t pointerSize() const noexcept override;
 
     [[nodiscard]] std::vector<core::ModuleInfo> modules() const override;
     [[nodiscard]] std::optional<core::ModuleInfo> findModule(std::string_view name) const override;
@@ -66,6 +65,7 @@ private:
 
     HANDLE handle_ = nullptr;
     core::ProcessId pid_ = 0;
+    std::size_t pointerSize_ = sizeof(void*);
 };
 
 }  // namespace hexengine::backends::win32

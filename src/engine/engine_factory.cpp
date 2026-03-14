@@ -12,9 +12,4 @@ std::unique_ptr<EngineSession> Win32EngineFactory::open(core::ProcessId pid) con
         backends::win32::Win32ProcessBackend::open(pid, access_));
 }
 
-std::unique_ptr<EngineSession> Win32EngineFactory::attachCurrent() const {
-    return std::make_unique<EngineSession>(
-        backends::win32::Win32ProcessBackend::attachCurrent(access_));
-}
-
 }  // namespace hexengine::engine

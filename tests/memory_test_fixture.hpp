@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace hexengine::tests {
@@ -85,5 +86,9 @@ inline constexpr std::array<std::byte, 12> kPagePatternBytes{
 
 inline constexpr std::string_view kPagePatternText = "DE AD BE EF 13 37 C0 DE 55 66 77 88";
 inline constexpr std::string_view kPagePatternWildcardText = "DE AD B? EF 13 37 C0 DE 55 66 7? 88";
+
+inline constexpr std::ptrdiff_t kPointerFirstOffset = 0x18;
+inline constexpr std::ptrdiff_t kPointerSecondOffset = 0x30;
+inline constexpr std::uint32_t kPointerValue = 0xCAFEBABE;
 
 }  // namespace hexengine::tests

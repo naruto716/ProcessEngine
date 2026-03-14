@@ -25,6 +25,9 @@ alignas(16) std::array<std::byte, hexengine::tests::kModulePatternBytes.size()> 
     hexengine::tests::kModulePatternBytes;
 alignas(16) std::array<std::byte, hexengine::tests::kWritableInitialBytes.size()> g_writableBuffer =
     hexengine::tests::kWritableInitialBytes;
+alignas(sizeof(std::uintptr_t)) std::array<std::byte, 0x80> g_pointerLevel0{};
+alignas(sizeof(std::uintptr_t)) std::array<std::byte, 0x80> g_pointerLevel1{};
+std::uintptr_t g_pointerRootStorage = 0;
 
 struct Options {
     fs::path manifestPath;
@@ -84,7 +87,9 @@ void writeManifest(
     const fs::path& manifestPath,
     std::uintptr_t pageAddress,
     std::size_t pageSize,
-    std::uintptr_t pagePatternAddress) {
+    std::uintptr_t pagePatternAddress,
+    std::uintptr_t pointerRootStorageAddress,
+    std::uintptr_t pointerFinalAddress) {
     std::ofstream manifest(manifestPath, std::ios::binary | std::ios::trunc);
     if (!manifest) {
         throw std::runtime_error("Failed to open manifest file");
@@ -113,6 +118,8 @@ void writeManifest(
     manifest << "writable_buffer_address=" << reinterpret_cast<std::uintptr_t>(g_writableBuffer.data()) << '\n';
     manifest << "page_address=" << pageAddress << '\n';
     manifest << "page_pattern_address=" << pagePatternAddress << '\n';
+    manifest << "pointer_root_storage_address=" << pointerRootStorageAddress << '\n';
+    manifest << "pointer_final_address=" << pointerFinalAddress << '\n';
     manifest << std::dec << std::noshowbase;
     manifest << "module_pattern_size=" << g_modulePattern.size() << '\n';
     manifest << "writable_buffer_size=" << g_writableBuffer.size() << '\n';
@@ -144,12 +151,23 @@ int wmain(int argc, wchar_t* argv[]) {
             hexengine::tests::kPagePatternBytes.end(),
             page + hexengine::tests::kPagePatternOffset);
 
+        g_pointerRootStorage = reinterpret_cast<std::uintptr_t>(g_pointerLevel0.data());
+        *reinterpret_cast<std::uintptr_t*>(g_pointerLevel0.data() + hexengine::tests::kPointerFirstOffset) =
+            reinterpret_cast<std::uintptr_t>(g_pointerLevel1.data());
+        *reinterpret_cast<std::uint32_t*>(g_pointerLevel1.data() + hexengine::tests::kPointerSecondOffset) =
+            hexengine::tests::kPointerValue;
+
         const auto pagePatternAddress = reinterpret_cast<std::uintptr_t>(page + hexengine::tests::kPagePatternOffset);
+        const auto pointerRootStorageAddress = reinterpret_cast<std::uintptr_t>(&g_pointerRootStorage);
+        const auto pointerFinalAddress =
+            reinterpret_cast<std::uintptr_t>(g_pointerLevel1.data() + hexengine::tests::kPointerSecondOffset);
         writeManifest(
             options.manifestPath,
             reinterpret_cast<std::uintptr_t>(page),
             systemInfo.dwPageSize,
-            pagePatternAddress);
+            pagePatternAddress,
+            pointerRootStorageAddress,
+            pointerFinalAddress);
 
         while (!fs::exists(options.stopFilePath)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(25));

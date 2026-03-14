@@ -29,7 +29,7 @@ int main() {
         using namespace hexengine::engine;
 
         Win32EngineFactory factory;
-        auto engine = factory.attachCurrent();
+        auto engine = factory.open(::GetCurrentProcessId());
         const auto mainModule = engine->process().mainModule();
 
         const auto allocation = engine->allocate(AllocationRequest{

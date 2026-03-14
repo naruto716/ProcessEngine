@@ -7,6 +7,7 @@ namespace hexengine::engine {
 EngineSession::EngineSession(std::unique_ptr<backend::IProcessBackend> process)
     : process_(std::move(process)),
       scanner_(*process_),
+      pointers_(*process_, symbols_),
       allocations_(*process_, symbols_, allocationRecords_) {
     if (!process_) {
         throw std::invalid_argument("EngineSession requires a process backend");
@@ -35,6 +36,14 @@ SymbolRepository& EngineSession::symbols() noexcept {
 
 const SymbolRepository& EngineSession::symbols() const noexcept {
     return symbols_;
+}
+
+PointerResolver& EngineSession::pointers() noexcept {
+    return pointers_;
+}
+
+const PointerResolver& EngineSession::pointers() const noexcept {
+    return pointers_;
 }
 
 AllocationService& EngineSession::allocations() noexcept {
@@ -113,6 +122,14 @@ bool EngineSession::assertBytes(core::Address address, std::string_view pattern)
 
 core::ProtectionChange EngineSession::fullAccess(core::Address address, std::size_t size) {
     return process_->protect(address, size, core::kReadWriteExecute);
+}
+
+core::Address EngineSession::resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const {
+    return pointers_.resolve(base, offsets);
+}
+
+core::Address EngineSession::resolvePointer(std::string_view expression) const {
+    return pointers_.resolve(expression);
 }
 
 }  // namespace hexengine::engine

@@ -37,6 +37,8 @@ struct Manifest {
     std::size_t pageSize = 0;
     std::uintptr_t pagePatternAddress = 0;
     std::size_t pagePatternOffset = 0;
+    std::uintptr_t pointerRootStorageAddress = 0;
+    std::uintptr_t pointerFinalAddress = 0;
 };
 
 [[noreturn]] void fail(std::string_view message) {
@@ -164,6 +166,8 @@ void expect(bool condition, std::string_view message) {
         .pageSize = parseSize(values, "page_size"),
         .pagePatternAddress = parseAddress(values, "page_pattern_address"),
         .pagePatternOffset = parseSize(values, "page_pattern_offset"),
+        .pointerRootStorageAddress = parseAddress(values, "pointer_root_storage_address"),
+        .pointerFinalAddress = parseAddress(values, "pointer_final_address"),
     };
 }
 
@@ -315,6 +319,18 @@ void runIntegration(const fs::path& targetPath) {
         });
     expect(containsAddress(pageHits, manifest.pagePatternAddress), "Page-limited scan did not find the page fixture pattern");
 
+    const auto pointerAddress = engine->resolvePointer(
+        manifest.pointerRootStorageAddress,
+        hexengine::tests::kPointerFirstOffset,
+        hexengine::tests::kPointerSecondOffset);
+    expect(pointerAddress == manifest.pointerFinalAddress, "Pointer-chain template resolution returned the wrong address");
+
+    const auto pointerValue = engine->readPointerValue<std::uint32_t>(
+        manifest.pointerRootStorageAddress,
+        hexengine::tests::kPointerFirstOffset,
+        hexengine::tests::kPointerSecondOffset);
+    expect(pointerValue == hexengine::tests::kPointerValue, "Pointer-chain template read returned the wrong value");
+
     const auto region = process.query(manifest.pageAddress);
     expect(region.has_value(), "Fixture page region query failed");
     expect(region->isCommitted(), "Fixture page should be committed");
@@ -335,6 +351,25 @@ void runIntegration(const fs::path& targetPath) {
     expect(resolved.has_value(), "Standalone symbol resolution failed");
     expect(resolved->address == manifest.modulePatternAddress, "Standalone symbol address mismatch");
     expect(engine->unregisterSymbol("fixture.module.pattern"), "Standalone symbol unregister failed");
+
+    const auto pointerRootSymbol = engine->registerSymbol(
+        "fixture.pointer.root",
+        manifest.pointerRootStorageAddress,
+        sizeof(std::uintptr_t));
+    expect(pointerRootSymbol.address == manifest.pointerRootStorageAddress, "Pointer root symbol registration failed");
+    const auto pointerBySymbol = engine->resolvePointer(
+        "[[fixture.pointer.root+0x0]+0x18]+0x30");
+    expect(pointerBySymbol == manifest.pointerFinalAddress, "Symbol-based pointer expression returned the wrong address");
+
+    std::ostringstream pointerExpression;
+    pointerExpression << "[[" << mainModule.name << "+0x" << std::hex
+                      << (manifest.pointerRootStorageAddress - mainModule.base)
+                      << "]+0x18]+0x30";
+    const auto pointerByModuleExpression = engine->resolvePointer(pointerExpression.str());
+    expect(pointerByModuleExpression == manifest.pointerFinalAddress, "Module-based pointer expression returned the wrong address");
+
+    const auto pointerValueByExpression = engine->readPointerValue<std::uint32_t>(pointerExpression.str());
+    expect(pointerValueByExpression == hexengine::tests::kPointerValue, "Pointer expression read returned the wrong value");
 
     const auto localAllocation = engine->allocate(AllocationRequest{
         .name = "integration.local.alloc",
