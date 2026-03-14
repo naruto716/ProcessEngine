@@ -55,6 +55,22 @@ target_compile_features(ce_pattern_test PRIVATE cxx_std_20)
 target_include_directories(ce_pattern_test PRIVATE include tests)
 target_link_libraries(ce_pattern_test PRIVATE ce_runtime_memory)
 
+add_executable(ce_scan_benchmark_target
+    benchmarks/scan_benchmark_target.cpp
+)
+
+target_compile_features(ce_scan_benchmark_target PRIVATE cxx_std_20)
+target_include_directories(ce_scan_benchmark_target PRIVATE include benchmarks)
+target_link_libraries(ce_scan_benchmark_target PRIVATE ce_runtime_memory)
+
+add_executable(ce_scan_benchmark
+    benchmarks/scan_benchmark.cpp
+)
+
+target_compile_features(ce_scan_benchmark PRIVATE cxx_std_20)
+target_include_directories(ce_scan_benchmark PRIVATE include benchmarks)
+target_link_libraries(ce_scan_benchmark PRIVATE ce_runtime_memory)
+
 add_test(
     NAME ce_memory_integration
     COMMAND ce_memory_integration_test --target $<TARGET_FILE:ce_memory_test_target>

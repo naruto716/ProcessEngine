@@ -132,6 +132,28 @@ With MinGW:
 ctest --test-dir build\mingw-debug --output-on-failure
 ```
 
+## Scan Benchmark
+
+There is also a manual benchmark harness for AOB scanning:
+
+- `ce_scan_benchmark_target`: launches a child process with a game-like committed memory footprint across several large regions
+- `ce_scan_benchmark`: attaches to that child and times range-limited vs full-process scans for short, long, wildcard-heavy, nibble-heavy, and no-anchor patterns
+
+Build it with the normal MSVC path, then run:
+
+```powershell
+.\scripts\build-msvc.ps1 -Configuration Release
+.\build\msvc-release\Release\ce_scan_benchmark.exe --target .\build\msvc-release\Release\ce_scan_benchmark_target.exe
+```
+
+Optional knobs:
+
+```powershell
+.\build\msvc-release\Release\ce_scan_benchmark.exe --target .\build\msvc-release\Release\ce_scan_benchmark_target.exe --scale 2 --iterations 6 --warmup 1
+```
+
+`--scale 2` doubles the committed benchmark footprint, so the child process looks more like a memory-heavy game.
+
 ## Useful next commands
 
 Check the MSVC toolchain:
