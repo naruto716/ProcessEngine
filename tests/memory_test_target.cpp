@@ -21,10 +21,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
-alignas(16) std::array<std::byte, cepipeline::tests::kModulePatternBytes.size()> g_modulePattern =
-    cepipeline::tests::kModulePatternBytes;
-alignas(16) std::array<std::byte, cepipeline::tests::kWritableInitialBytes.size()> g_writableBuffer =
-    cepipeline::tests::kWritableInitialBytes;
+alignas(16) std::array<std::byte, hexengine::tests::kModulePatternBytes.size()> g_modulePattern =
+    hexengine::tests::kModulePatternBytes;
+alignas(16) std::array<std::byte, hexengine::tests::kWritableInitialBytes.size()> g_writableBuffer =
+    hexengine::tests::kWritableInitialBytes;
 
 struct Options {
     fs::path manifestPath;
@@ -117,7 +117,7 @@ void writeManifest(
     manifest << "module_pattern_size=" << g_modulePattern.size() << '\n';
     manifest << "writable_buffer_size=" << g_writableBuffer.size() << '\n';
     manifest << "page_size=" << pageSize << '\n';
-    manifest << "page_pattern_offset=" << cepipeline::tests::kPagePatternOffset << '\n';
+    manifest << "page_pattern_offset=" << hexengine::tests::kPagePatternOffset << '\n';
 }
 
 }  // namespace
@@ -140,11 +140,11 @@ int wmain(int argc, wchar_t* argv[]) {
 
         std::fill(page, page + systemInfo.dwPageSize, std::byte{0xCC});
         std::copy(
-            cepipeline::tests::kPagePatternBytes.begin(),
-            cepipeline::tests::kPagePatternBytes.end(),
-            page + cepipeline::tests::kPagePatternOffset);
+            hexengine::tests::kPagePatternBytes.begin(),
+            hexengine::tests::kPagePatternBytes.end(),
+            page + hexengine::tests::kPagePatternOffset);
 
-        const auto pagePatternAddress = reinterpret_cast<std::uintptr_t>(page + cepipeline::tests::kPagePatternOffset);
+        const auto pagePatternAddress = reinterpret_cast<std::uintptr_t>(page + hexengine::tests::kPagePatternOffset);
         writeManifest(
             options.manifestPath,
             reinterpret_cast<std::uintptr_t>(page),

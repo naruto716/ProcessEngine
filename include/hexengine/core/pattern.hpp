@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cepipeline::memory {
+namespace hexengine::core {
 
 struct PatternToken {
     std::uint8_t value = 0;
@@ -39,4 +39,4 @@ private:
     std::size_t anchorOffset_ = 0;
 };
 
-}  // namespace cepipeline::memory
+}  // namespace hexengine::core

@@ -1,9 +1,8 @@
-#include "cepipeline/memory/process_memory.hpp"
+#include "hexengine/backends/win32/win32_process_backend.hpp"
 
 #include <TlHelp32.h>
 
 #include <algorithm>
-#include <cctype>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -11,7 +10,9 @@
 #include <system_error>
 #include <utility>
 
-namespace cepipeline::memory {
+#include "hexengine/core/case_insensitive.hpp"
+
+namespace hexengine::backends::win32 {
 namespace {
 
 class UniqueHandle {
@@ -80,109 +81,144 @@ private:
     return result;
 }
 
-[[nodiscard]] std::string foldCase(std::string_view value) {
-    std::string folded;
-    folded.reserve(value.size());
-    for (const auto character : value) {
-        folded.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
-    }
-    return folded;
-}
+[[nodiscard]] core::ProtectionFlags toProtectionFlags(DWORD protection) noexcept {
+    core::ProtectionFlags flags = core::ProtectionFlags::None;
 
-[[nodiscard]] bool isReadableProtection(DWORD protection) noexcept {
-    if ((protection & PAGE_GUARD) != 0 || (protection & PAGE_NOACCESS) != 0) {
-        return false;
+    if ((protection & PAGE_GUARD) != 0) {
+        flags |= core::ProtectionFlags::Guard;
+    }
+    if ((protection & PAGE_NOACCESS) != 0) {
+        flags |= core::ProtectionFlags::NoAccess;
     }
 
     const auto baseProtection = protection & 0xFF;
     switch (baseProtection) {
     case PAGE_READONLY:
+        flags |= core::ProtectionFlags::Read;
+        break;
     case PAGE_READWRITE:
+        flags |= core::ProtectionFlags::Read | core::ProtectionFlags::Write;
+        break;
     case PAGE_WRITECOPY:
-    case PAGE_EXECUTE_READ:
-    case PAGE_EXECUTE_READWRITE:
-    case PAGE_EXECUTE_WRITECOPY:
-        return true;
-    default:
-        return false;
-    }
-}
-
-[[nodiscard]] bool isWritableProtection(DWORD protection) noexcept {
-    if ((protection & PAGE_GUARD) != 0 || (protection & PAGE_NOACCESS) != 0) {
-        return false;
-    }
-
-    const auto baseProtection = protection & 0xFF;
-    switch (baseProtection) {
-    case PAGE_READWRITE:
-    case PAGE_WRITECOPY:
-    case PAGE_EXECUTE_READWRITE:
-    case PAGE_EXECUTE_WRITECOPY:
-        return true;
-    default:
-        return false;
-    }
-}
-
-[[nodiscard]] bool isExecutableProtection(DWORD protection) noexcept {
-    if ((protection & PAGE_GUARD) != 0 || (protection & PAGE_NOACCESS) != 0) {
-        return false;
-    }
-
-    const auto baseProtection = protection & 0xFF;
-    switch (baseProtection) {
+        flags |= core::ProtectionFlags::Read | core::ProtectionFlags::Write | core::ProtectionFlags::CopyOnWrite;
+        break;
     case PAGE_EXECUTE:
+        flags |= core::ProtectionFlags::Execute;
+        break;
     case PAGE_EXECUTE_READ:
+        flags |= core::ProtectionFlags::Read | core::ProtectionFlags::Execute;
+        break;
     case PAGE_EXECUTE_READWRITE:
+        flags |= core::ProtectionFlags::Read | core::ProtectionFlags::Write | core::ProtectionFlags::Execute;
+        break;
     case PAGE_EXECUTE_WRITECOPY:
-        return true;
+        flags |= core::ProtectionFlags::Read | core::ProtectionFlags::Write |
+            core::ProtectionFlags::Execute | core::ProtectionFlags::CopyOnWrite;
+        break;
     default:
-        return false;
+        break;
+    }
+
+    return flags;
+}
+
+[[nodiscard]] DWORD toWin32Protection(core::ProtectionFlags protection) noexcept {
+    const auto read = core::hasFlag(protection, core::ProtectionFlags::Read);
+    const auto write = core::hasFlag(protection, core::ProtectionFlags::Write);
+    const auto execute = core::hasFlag(protection, core::ProtectionFlags::Execute);
+    const auto guard = core::hasFlag(protection, core::ProtectionFlags::Guard);
+    const auto noAccess = core::hasFlag(protection, core::ProtectionFlags::NoAccess);
+    const auto copyOnWrite = core::hasFlag(protection, core::ProtectionFlags::CopyOnWrite);
+
+    DWORD baseProtection = PAGE_NOACCESS;
+    if (noAccess) {
+        baseProtection = PAGE_NOACCESS;
+    } else if (execute && write) {
+        baseProtection = copyOnWrite ? PAGE_EXECUTE_WRITECOPY : PAGE_EXECUTE_READWRITE;
+    } else if (execute && read) {
+        baseProtection = PAGE_EXECUTE_READ;
+    } else if (execute) {
+        baseProtection = PAGE_EXECUTE;
+    } else if (write) {
+        baseProtection = copyOnWrite ? PAGE_WRITECOPY : PAGE_READWRITE;
+    } else if (read) {
+        baseProtection = PAGE_READONLY;
+    }
+
+    if (guard) {
+        baseProtection |= PAGE_GUARD;
+    }
+
+    return baseProtection;
+}
+
+[[nodiscard]] core::MemoryState toMemoryState(DWORD state) noexcept {
+    switch (state) {
+    case MEM_FREE:
+        return core::MemoryState::Free;
+    case MEM_RESERVE:
+        return core::MemoryState::Reserved;
+    case MEM_COMMIT:
+        return core::MemoryState::Committed;
+    default:
+        return core::MemoryState::Unknown;
     }
 }
 
-[[nodiscard]] std::uintptr_t alignDown(std::uintptr_t value, std::uintptr_t alignment) noexcept {
+[[nodiscard]] core::MemoryType toMemoryType(DWORD type) noexcept {
+    switch (type) {
+    case MEM_PRIVATE:
+        return core::MemoryType::Private;
+    case MEM_MAPPED:
+        return core::MemoryType::Mapped;
+    case MEM_IMAGE:
+        return core::MemoryType::Image;
+    default:
+        return core::MemoryType::Unknown;
+    }
+}
+
+[[nodiscard]] core::Address alignDown(core::Address value, core::Address alignment) noexcept {
     return value - (value % alignment);
 }
 
-[[nodiscard]] std::uintptr_t alignUp(std::uintptr_t value, std::uintptr_t alignment) noexcept {
+[[nodiscard]] core::Address alignUp(core::Address value, core::Address alignment) noexcept {
     if (value % alignment == 0) {
         return value;
     }
     return value + (alignment - (value % alignment));
 }
 
-[[nodiscard]] std::uintptr_t addSaturated(std::uintptr_t value, std::uintptr_t delta) noexcept {
-    if (delta > std::numeric_limits<std::uintptr_t>::max() - value) {
-        return std::numeric_limits<std::uintptr_t>::max();
+[[nodiscard]] core::Address addSaturated(core::Address value, core::Address delta) noexcept {
+    if (delta > std::numeric_limits<core::Address>::max() - value) {
+        return std::numeric_limits<core::Address>::max();
     }
     return value + delta;
 }
 
-[[nodiscard]] std::uintptr_t subtractSaturated(std::uintptr_t value, std::uintptr_t delta) noexcept {
+[[nodiscard]] core::Address subtractSaturated(core::Address value, core::Address delta) noexcept {
     if (value < delta) {
         return 0;
     }
     return value - delta;
 }
 
-[[nodiscard]] std::string buildReadWriteError(const char* verb, std::size_t size, std::uintptr_t address) {
+[[nodiscard]] std::string buildReadWriteError(const char* verb, std::size_t size, core::Address address) {
     std::ostringstream stream;
     stream << verb << " failed for " << size << " bytes at 0x" << std::hex << address;
     return stream.str();
 }
 
-[[nodiscard]] std::optional<std::uintptr_t> nearestAllocBaseInFreeRegion(
+[[nodiscard]] std::optional<core::Address> nearestAllocBaseInFreeRegion(
     const MEMORY_BASIC_INFORMATION& information,
-    std::uintptr_t nearAddress,
+    core::Address nearAddress,
     std::size_t size,
-    std::uintptr_t granularity) noexcept {
+    core::Address granularity) noexcept {
     if (information.State != MEM_FREE) {
         return std::nullopt;
     }
 
-    const auto regionBase = reinterpret_cast<std::uintptr_t>(information.BaseAddress);
+    const auto regionBase = reinterpret_cast<core::Address>(information.BaseAddress);
     const auto regionEnd = addSaturated(regionBase, information.RegionSize);
     if (regionEnd <= regionBase || size > regionEnd - regionBase) {
         return std::nullopt;
@@ -203,10 +239,10 @@ private:
     const auto lowerCandidate = alignDown(clampedTarget, granularity);
     const auto upperCandidate = alignUp(clampedTarget, granularity);
 
-    std::optional<std::uintptr_t> bestCandidate;
-    auto bestDistance = std::numeric_limits<std::uintptr_t>::max();
+    std::optional<core::Address> bestCandidate;
+    auto bestDistance = std::numeric_limits<core::Address>::max();
 
-    const auto consider = [&](std::uintptr_t candidate) {
+    const auto consider = [&](core::Address candidate) {
         if (candidate < firstCandidate || candidate > lastCandidate) {
             return;
         }
@@ -223,8 +259,8 @@ private:
     return bestCandidate;
 }
 
-[[nodiscard]] std::uintptr_t distanceToRegion(const MEMORY_BASIC_INFORMATION& information, std::uintptr_t nearAddress) noexcept {
-    const auto regionBase = reinterpret_cast<std::uintptr_t>(information.BaseAddress);
+[[nodiscard]] core::Address distanceToRegion(const MEMORY_BASIC_INFORMATION& information, core::Address nearAddress) noexcept {
+    const auto regionBase = reinterpret_cast<core::Address>(information.BaseAddress);
     const auto regionEnd = addSaturated(regionBase, information.RegionSize);
 
     if (nearAddress < regionBase) {
@@ -236,13 +272,13 @@ private:
     return 0;
 }
 
-[[nodiscard]] std::optional<AllocationBlock> tryAllocateInRegion(
+[[nodiscard]] std::optional<core::AllocationBlock> tryAllocateInRegion(
     HANDLE processHandle,
     const MEMORY_BASIC_INFORMATION& information,
-    std::uintptr_t nearAddress,
+    core::Address nearAddress,
     std::size_t size,
-    DWORD protection,
-    std::uintptr_t granularity) {
+    core::ProtectionFlags protection,
+    core::Address granularity) {
     const auto candidate = nearestAllocBaseInFreeRegion(information, nearAddress, size, granularity);
     if (!candidate) {
         return std::nullopt;
@@ -253,13 +289,13 @@ private:
         reinterpret_cast<LPVOID>(*candidate),
         size,
         MEM_COMMIT | MEM_RESERVE,
-        protection);
+        toWin32Protection(protection));
     if (address == nullptr) {
         return std::nullopt;
     }
 
-    return AllocationBlock{
-        .address = reinterpret_cast<std::uintptr_t>(address),
+    return core::AllocationBlock{
+        .address = reinterpret_cast<core::Address>(address),
         .size = size,
         .protection = protection,
     };
@@ -267,40 +303,20 @@ private:
 
 }  // namespace
 
-bool MemoryRegion::isCommitted() const noexcept {
-    return state == MEM_COMMIT;
-}
-
-bool MemoryRegion::isReadable() const noexcept {
-    return isReadableProtection(protection);
-}
-
-bool MemoryRegion::isWritable() const noexcept {
-    return isWritableProtection(protection);
-}
-
-bool MemoryRegion::isExecutable() const noexcept {
-    return isExecutableProtection(protection);
-}
-
-bool MemoryRegion::isScanCandidate() const noexcept {
-    return isCommitted() && isReadable();
-}
-
-ProcessMemory ProcessMemory::open(std::uint32_t pid, DWORD access) {
+std::unique_ptr<Win32ProcessBackend> Win32ProcessBackend::open(core::ProcessId pid, AccessMask access) {
     UniqueHandle handle(::OpenProcess(access, FALSE, pid));
     if (handle.get() == nullptr) {
         throwLastError("OpenProcess failed");
     }
 
-    return ProcessMemory(handle.release(), pid);
+    return std::unique_ptr<Win32ProcessBackend>(new Win32ProcessBackend(handle.release(), pid));
 }
 
-ProcessMemory ProcessMemory::attachCurrent(DWORD access) {
+std::unique_ptr<Win32ProcessBackend> Win32ProcessBackend::attachCurrent(AccessMask access) {
     return open(::GetCurrentProcessId(), access);
 }
 
-DWORD ProcessMemory::defaultAccess() noexcept {
+Win32ProcessBackend::AccessMask Win32ProcessBackend::defaultAccess() noexcept {
     return PROCESS_QUERY_INFORMATION |
         PROCESS_VM_READ |
         PROCESS_VM_WRITE |
@@ -308,17 +324,17 @@ DWORD ProcessMemory::defaultAccess() noexcept {
         PROCESS_CREATE_THREAD;
 }
 
-ProcessMemory::ProcessMemory(HANDLE handle, std::uint32_t pid) noexcept
+Win32ProcessBackend::Win32ProcessBackend(HANDLE handle, core::ProcessId pid) noexcept
     : handle_(handle),
       pid_(pid) {
 }
 
-ProcessMemory::ProcessMemory(ProcessMemory&& other) noexcept
+Win32ProcessBackend::Win32ProcessBackend(Win32ProcessBackend&& other) noexcept
     : handle_(std::exchange(other.handle_, nullptr)),
       pid_(std::exchange(other.pid_, 0)) {
 }
 
-ProcessMemory& ProcessMemory::operator=(ProcessMemory&& other) noexcept {
+Win32ProcessBackend& Win32ProcessBackend::operator=(Win32ProcessBackend&& other) noexcept {
     if (this != &other) {
         if (handle_ != nullptr) {
             ::CloseHandle(handle_);
@@ -330,21 +346,17 @@ ProcessMemory& ProcessMemory::operator=(ProcessMemory&& other) noexcept {
     return *this;
 }
 
-ProcessMemory::~ProcessMemory() {
+Win32ProcessBackend::~Win32ProcessBackend() {
     if (handle_ != nullptr) {
         ::CloseHandle(handle_);
     }
 }
 
-std::uint32_t ProcessMemory::pid() const noexcept {
+core::ProcessId Win32ProcessBackend::pid() const noexcept {
     return pid_;
 }
 
-HANDLE ProcessMemory::nativeHandle() const noexcept {
-    return handle_;
-}
-
-std::vector<ModuleInfo> ProcessMemory::modules() const {
+std::vector<core::ModuleInfo> Win32ProcessBackend::modules() const {
     UniqueHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid_));
     if (snapshot.get() == INVALID_HANDLE_VALUE) {
         throwLastError("CreateToolhelp32Snapshot failed");
@@ -357,12 +369,12 @@ std::vector<ModuleInfo> ProcessMemory::modules() const {
         throwLastError("Module32FirstW failed");
     }
 
-    std::vector<ModuleInfo> results;
+    std::vector<core::ModuleInfo> results;
     do {
-        results.push_back(ModuleInfo{
+        results.push_back(core::ModuleInfo{
             .name = wideToUtf8(entry.szModule),
             .path = wideToUtf8(entry.szExePath),
-            .base = reinterpret_cast<std::uintptr_t>(entry.modBaseAddr),
+            .base = reinterpret_cast<core::Address>(entry.modBaseAddr),
             .size = static_cast<std::size_t>(entry.modBaseSize),
         });
     } while (::Module32NextW(snapshot.get(), &entry));
@@ -370,10 +382,10 @@ std::vector<ModuleInfo> ProcessMemory::modules() const {
     return results;
 }
 
-std::optional<ModuleInfo> ProcessMemory::findModule(std::string_view name) const {
-    const auto target = foldCase(name);
+std::optional<core::ModuleInfo> Win32ProcessBackend::findModule(std::string_view name) const {
+    const auto target = core::foldCaseAscii(name);
     for (const auto& module : modules()) {
-        if (foldCase(module.name) == target) {
+        if (core::foldCaseAscii(module.name) == target) {
             return module;
         }
     }
@@ -381,7 +393,7 @@ std::optional<ModuleInfo> ProcessMemory::findModule(std::string_view name) const
     return std::nullopt;
 }
 
-ModuleInfo ProcessMemory::mainModule() const {
+core::ModuleInfo Win32ProcessBackend::mainModule() const {
     const auto processModules = modules();
     if (processModules.empty()) {
         throw std::runtime_error("Process has no visible modules");
@@ -390,7 +402,7 @@ ModuleInfo ProcessMemory::mainModule() const {
     return processModules.front();
 }
 
-std::optional<MemoryRegion> ProcessMemory::query(std::uintptr_t address) const {
+std::optional<core::MemoryRegion> Win32ProcessBackend::query(core::Address address) const {
     MEMORY_BASIC_INFORMATION information{};
     const auto queried = ::VirtualQueryEx(
         handle_,
@@ -401,27 +413,27 @@ std::optional<MemoryRegion> ProcessMemory::query(std::uintptr_t address) const {
         return std::nullopt;
     }
 
-    return MemoryRegion{
-        .base = reinterpret_cast<std::uintptr_t>(information.BaseAddress),
+    return core::MemoryRegion{
+        .base = reinterpret_cast<core::Address>(information.BaseAddress),
         .size = information.RegionSize,
-        .protection = information.Protect,
-        .state = information.State,
-        .type = information.Type,
+        .protection = toProtectionFlags(information.Protect),
+        .state = toMemoryState(information.State),
+        .type = toMemoryType(information.Type),
     };
 }
 
-std::vector<MemoryRegion> ProcessMemory::regions(std::optional<AddressRange> range) const {
+std::vector<core::MemoryRegion> Win32ProcessBackend::regions(std::optional<core::AddressRange> range) const {
     SYSTEM_INFO systemInfo{};
     ::GetNativeSystemInfo(&systemInfo);
 
-    std::uintptr_t start = reinterpret_cast<std::uintptr_t>(systemInfo.lpMinimumApplicationAddress);
-    std::uintptr_t end = reinterpret_cast<std::uintptr_t>(systemInfo.lpMaximumApplicationAddress);
+    core::Address start = reinterpret_cast<core::Address>(systemInfo.lpMinimumApplicationAddress);
+    core::Address end = reinterpret_cast<core::Address>(systemInfo.lpMaximumApplicationAddress);
     if (range) {
         start = std::max(start, range->start);
         end = std::min(end, range->end);
     }
 
-    std::vector<MemoryRegion> results;
+    std::vector<core::MemoryRegion> results;
     auto cursor = start;
     while (cursor < end) {
         MEMORY_BASIC_INFORMATION information{};
@@ -434,18 +446,18 @@ std::vector<MemoryRegion> ProcessMemory::regions(std::optional<AddressRange> ran
             break;
         }
 
-        const auto base = reinterpret_cast<std::uintptr_t>(information.BaseAddress);
+        const auto base = reinterpret_cast<core::Address>(information.BaseAddress);
         const auto size = information.RegionSize;
         if (base >= end) {
             break;
         }
 
-        results.push_back(MemoryRegion{
+        results.push_back(core::MemoryRegion{
             .base = base,
             .size = size,
-            .protection = information.Protect,
-            .state = information.State,
-            .type = information.Type,
+            .protection = toProtectionFlags(information.Protect),
+            .state = toMemoryState(information.State),
+            .type = toMemoryType(information.Type),
         });
 
         cursor = addSaturated(base, size);
@@ -457,7 +469,7 @@ std::vector<MemoryRegion> ProcessMemory::regions(std::optional<AddressRange> ran
     return results;
 }
 
-std::vector<std::byte> ProcessMemory::read(std::uintptr_t address, std::size_t size) const {
+std::vector<std::byte> Win32ProcessBackend::read(core::Address address, std::size_t size) const {
     std::vector<std::byte> buffer(size);
     if (size == 0) {
         return buffer;
@@ -471,7 +483,7 @@ std::vector<std::byte> ProcessMemory::read(std::uintptr_t address, std::size_t s
     return buffer;
 }
 
-std::size_t ProcessMemory::tryRead(std::uintptr_t address, std::span<std::byte> buffer) const noexcept {
+std::size_t Win32ProcessBackend::tryRead(core::Address address, std::span<std::byte> buffer) const noexcept {
     SIZE_T bytesRead = 0;
     if (::ReadProcessMemory(
             handle_,
@@ -485,7 +497,7 @@ std::size_t ProcessMemory::tryRead(std::uintptr_t address, std::span<std::byte> 
     return static_cast<std::size_t>(bytesRead);
 }
 
-void ProcessMemory::write(std::uintptr_t address, std::span<const std::byte> bytes) const {
+void Win32ProcessBackend::write(core::Address address, std::span<const std::byte> bytes) const {
     if (bytes.empty()) {
         return;
     }
@@ -496,7 +508,7 @@ void ProcessMemory::write(std::uintptr_t address, std::span<const std::byte> byt
     }
 }
 
-std::size_t ProcessMemory::tryWrite(std::uintptr_t address, std::span<const std::byte> bytes) const noexcept {
+std::size_t Win32ProcessBackend::tryWrite(core::Address address, std::span<const std::byte> bytes) const noexcept {
     SIZE_T bytesWritten = 0;
     if (::WriteProcessMemory(
             handle_,
@@ -510,27 +522,30 @@ std::size_t ProcessMemory::tryWrite(std::uintptr_t address, std::span<const std:
     return static_cast<std::size_t>(bytesWritten);
 }
 
-ProtectionChange ProcessMemory::protect(std::uintptr_t address, std::size_t size, DWORD newProtection) const {
+core::ProtectionChange Win32ProcessBackend::protect(
+    core::Address address,
+    std::size_t size,
+    core::ProtectionFlags newProtection) {
     DWORD previousProtection = 0;
     if (::VirtualProtectEx(
             handle_,
             reinterpret_cast<LPVOID>(address),
             size,
-            newProtection,
+            toWin32Protection(newProtection),
             &previousProtection) == FALSE) {
         throwLastError("VirtualProtectEx failed");
     }
 
-    return ProtectionChange{
-        .previous = previousProtection,
+    return core::ProtectionChange{
+        .previous = toProtectionFlags(previousProtection),
         .current = newProtection,
     };
 }
 
-AllocationBlock ProcessMemory::allocate(
+core::AllocationBlock Win32ProcessBackend::allocate(
     std::size_t size,
-    DWORD protection,
-    std::optional<std::uintptr_t> nearAddress) const {
+    core::ProtectionFlags protection,
+    std::optional<core::Address> nearAddress) {
     if (size == 0) {
         throw std::invalid_argument("Allocation size must be greater than zero");
     }
@@ -544,26 +559,29 @@ AllocationBlock ProcessMemory::allocate(
         nullptr,
         size,
         MEM_COMMIT | MEM_RESERVE,
-        protection);
+        toWin32Protection(protection));
     if (address == nullptr) {
         throwLastError("VirtualAllocEx failed");
     }
 
-    return AllocationBlock{
-        .address = reinterpret_cast<std::uintptr_t>(address),
+    return core::AllocationBlock{
+        .address = reinterpret_cast<core::Address>(address),
         .size = size,
         .protection = protection,
     };
 }
 
-AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::size_t size, DWORD protection) const {
+core::AllocationBlock Win32ProcessBackend::allocateNear(
+    core::Address nearAddress,
+    std::size_t size,
+    core::ProtectionFlags protection) const {
     SYSTEM_INFO systemInfo{};
     ::GetNativeSystemInfo(&systemInfo);
 
-    const auto granularity = static_cast<std::uintptr_t>(systemInfo.dwAllocationGranularity);
-    const auto maxDistance = static_cast<std::uintptr_t>(0x8000'0000ull);
-    const auto minimum = reinterpret_cast<std::uintptr_t>(systemInfo.lpMinimumApplicationAddress);
-    const auto maximum = reinterpret_cast<std::uintptr_t>(systemInfo.lpMaximumApplicationAddress);
+    const auto granularity = static_cast<core::Address>(systemInfo.dwAllocationGranularity);
+    const auto maxDistance = static_cast<core::Address>(0x8000'0000ull);
+    const auto minimum = reinterpret_cast<core::Address>(systemInfo.lpMinimumApplicationAddress);
+    const auto maximum = reinterpret_cast<core::Address>(systemInfo.lpMaximumApplicationAddress);
 
     const auto searchStart = std::max(
         minimum,
@@ -574,8 +592,8 @@ AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::siz
         throw std::runtime_error("Unable to build a valid near-allocation search window");
     }
 
-    std::optional<std::uintptr_t> forwardCursor = std::clamp(nearAddress, searchStart, searchEnd - 1);
-    std::optional<std::uintptr_t> backwardCursor;
+    std::optional<core::Address> forwardCursor = std::clamp(nearAddress, searchStart, searchEnd - 1);
+    std::optional<core::Address> backwardCursor;
     if (nearAddress > searchStart) {
         backwardCursor = nearAddress - 1;
     }
@@ -629,7 +647,7 @@ AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::siz
             return distanceToRegion(*forwardInfo, nearAddress) <= distanceToRegion(*backwardInfo, nearAddress);
         };
 
-        const auto tryOne = [&](const MEMORY_BASIC_INFORMATION& information) -> std::optional<AllocationBlock> {
+        const auto tryOne = [&](const MEMORY_BASIC_INFORMATION& information) -> std::optional<core::AllocationBlock> {
             return tryAllocateInRegion(handle_, information, nearAddress, size, protection, granularity);
         };
 
@@ -659,7 +677,7 @@ AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::siz
 
         if (forwardInfo) {
             const auto next = addSaturated(
-                reinterpret_cast<std::uintptr_t>(forwardInfo->BaseAddress),
+                reinterpret_cast<core::Address>(forwardInfo->BaseAddress),
                 forwardInfo->RegionSize);
             if (next == 0 || next >= searchEnd) {
                 forwardCursor.reset();
@@ -671,7 +689,7 @@ AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::siz
         }
 
         if (backwardInfo) {
-            const auto base = reinterpret_cast<std::uintptr_t>(backwardInfo->BaseAddress);
+            const auto base = reinterpret_cast<core::Address>(backwardInfo->BaseAddress);
             if (base <= searchStart) {
                 backwardCursor.reset();
             } else {
@@ -685,86 +703,14 @@ AllocationBlock ProcessMemory::allocateNear(std::uintptr_t nearAddress, std::siz
     throw std::runtime_error("Unable to reserve memory near target address");
 }
 
-void ProcessMemory::free(std::uintptr_t address) const {
+void Win32ProcessBackend::free(core::Address address) {
     if (::VirtualFreeEx(handle_, reinterpret_cast<LPVOID>(address), 0, MEM_RELEASE) == FALSE) {
         throwLastError("VirtualFreeEx failed");
     }
 }
 
-std::vector<std::uintptr_t> ProcessMemory::scan(
-    const BytePattern& pattern,
-    std::optional<AddressRange> range) const {
-    if (pattern.empty()) {
-        return {};
-    }
-
-    constexpr std::size_t chunkSize = 64 * 1024;
-    const auto overlap = pattern.size() > 0 ? pattern.size() - 1 : 0;
-
-    std::vector<std::uintptr_t> matches;
-    for (const auto& region : regions(range)) {
-        if (!region.isScanCandidate()) {
-            continue;
-        }
-
-        const auto regionStart = range ? std::max(region.base, range->start) : region.base;
-        const auto regionLimit = addSaturated(region.base, region.size);
-        const auto regionEnd = range ? std::min(regionLimit, range->end) : regionLimit;
-        if (regionEnd <= regionStart || regionEnd - regionStart < pattern.size()) {
-            continue;
-        }
-
-        std::vector<std::byte> carry;
-        std::vector<std::byte> buffer;
-        auto cursor = regionStart;
-        while (cursor < regionEnd) {
-            const auto remaining = static_cast<std::size_t>(regionEnd - cursor);
-            const auto toRead = std::min(chunkSize, remaining);
-
-            buffer.resize(carry.size() + toRead);
-            std::copy(carry.begin(), carry.end(), buffer.begin());
-
-            auto target = std::span<std::byte>(buffer).subspan(carry.size(), toRead);
-            const auto bytesRead = tryRead(cursor, target);
-            if (carry.size() + bytesRead < pattern.size()) {
-                cursor += toRead;
-                carry.clear();
-                continue;
-            }
-
-            buffer.resize(carry.size() + bytesRead);
-            const auto offsets = pattern.findAll(buffer);
-            const auto carryBase = cursor - carry.size();
-            for (const auto offset : offsets) {
-                if (offset + pattern.size() <= carry.size()) {
-                    continue;
-                }
-                matches.push_back(carryBase + offset);
-            }
-
-            if (buffer.size() > overlap) {
-                carry.assign(buffer.end() - static_cast<std::ptrdiff_t>(overlap), buffer.end());
-            } else {
-                carry = buffer;
-            }
-
-            cursor += bytesRead;
-        }
-    }
-
-    return matches;
+HANDLE Win32ProcessBackend::nativeHandle() const noexcept {
+    return handle_;
 }
 
-std::vector<std::uintptr_t> ProcessMemory::scanModule(std::string_view moduleName, const BytePattern& pattern) const {
-    const auto module = findModule(moduleName);
-    if (!module) {
-        throw std::runtime_error("Module was not found");
-    }
-
-    return scan(pattern, AddressRange{
-        .start = module->base,
-        .end = module->base + module->size,
-    });
-}
-
-}  // namespace cepipeline::memory
+}  // namespace hexengine::backends::win32

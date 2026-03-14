@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <string_view>
 
-namespace cepipeline::tests {
+namespace hexengine::tests {
 
 inline constexpr std::array<std::byte, 16> kModulePatternBytes{
     std::byte{0x41},
@@ -86,4 +86,4 @@ inline constexpr std::array<std::byte, 12> kPagePatternBytes{
 inline constexpr std::string_view kPagePatternText = "DE AD BE EF 13 37 C0 DE 55 66 77 88";
 inline constexpr std::string_view kPagePatternWildcardText = "DE AD B? EF 13 37 C0 DE 55 66 7? 88";
 
-}  // namespace cepipeline::tests
+}  // namespace hexengine::tests

@@ -8,19 +8,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
 
-add_library(ce_runtime_memory
-    src/memory/allocation_manager.cpp
-    src/memory/pattern.cpp
-    src/memory/process_memory.cpp
-    src/memory/runtime_memory_model.cpp
-    src/memory/symbol_table.cpp
+add_library(hexengine_engine
+    src/backends/win32/win32_process_backend.cpp
+    src/core/pattern.cpp
+    src/engine/allocation_repository.cpp
+    src/engine/allocation_service.cpp
+    src/engine/engine_factory.cpp
+    src/engine/engine_session.cpp
+    src/engine/process_scanner.cpp
+    src/engine/symbol_repository.cpp
 )
 
-target_compile_features(ce_runtime_memory PUBLIC cxx_std_20)
-target_include_directories(ce_runtime_memory PUBLIC include)
+target_compile_features(hexengine_engine PUBLIC cxx_std_20)
+target_include_directories(hexengine_engine PUBLIC include)
 
 if (WIN32)
-    target_compile_definitions(ce_runtime_memory PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_compile_definitions(hexengine_engine PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
 else()
     message(FATAL_ERROR "This starter currently implements the CE-style memory layer for Windows only.")
 endif()
@@ -30,7 +33,7 @@ add_executable(ce_pipeline_test
 )
 
 target_compile_features(ce_pipeline_test PRIVATE cxx_std_20)
-target_link_libraries(ce_pipeline_test PRIVATE ce_runtime_memory)
+target_link_libraries(ce_pipeline_test PRIVATE hexengine_engine)
 
 add_executable(ce_memory_test_target
     tests/memory_test_target.cpp
@@ -45,7 +48,7 @@ add_executable(ce_memory_integration_test
 
 target_compile_features(ce_memory_integration_test PRIVATE cxx_std_20)
 target_include_directories(ce_memory_integration_test PRIVATE include tests)
-target_link_libraries(ce_memory_integration_test PRIVATE ce_runtime_memory)
+target_link_libraries(ce_memory_integration_test PRIVATE hexengine_engine)
 
 add_executable(ce_pattern_test
     tests/pattern_test.cpp
@@ -53,7 +56,7 @@ add_executable(ce_pattern_test
 
 target_compile_features(ce_pattern_test PRIVATE cxx_std_20)
 target_include_directories(ce_pattern_test PRIVATE include tests)
-target_link_libraries(ce_pattern_test PRIVATE ce_runtime_memory)
+target_link_libraries(ce_pattern_test PRIVATE hexengine_engine)
 
 add_executable(ce_scan_benchmark_target
     benchmarks/scan_benchmark_target.cpp
@@ -61,7 +64,7 @@ add_executable(ce_scan_benchmark_target
 
 target_compile_features(ce_scan_benchmark_target PRIVATE cxx_std_20)
 target_include_directories(ce_scan_benchmark_target PRIVATE include benchmarks)
-target_link_libraries(ce_scan_benchmark_target PRIVATE ce_runtime_memory)
+target_link_libraries(ce_scan_benchmark_target PRIVATE hexengine_engine)
 
 add_executable(ce_scan_benchmark
     benchmarks/scan_benchmark.cpp
@@ -69,7 +72,7 @@ add_executable(ce_scan_benchmark
 
 target_compile_features(ce_scan_benchmark PRIVATE cxx_std_20)
 target_include_directories(ce_scan_benchmark PRIVATE include benchmarks)
-target_link_libraries(ce_scan_benchmark PRIVATE ce_runtime_memory)
+target_link_libraries(ce_scan_benchmark PRIVATE hexengine_engine)
 
 add_test(
     NAME ce_memory_integration

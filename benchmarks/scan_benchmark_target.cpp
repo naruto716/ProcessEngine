@@ -16,20 +16,20 @@
 #include <thread>
 #include <vector>
 
-#include "cepipeline/memory/pattern.hpp"
+#include "hexengine/core/pattern.hpp"
 #include "scan_benchmark_fixture.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
 
-using cepipeline::memory::BytePattern;
-using cepipeline::memory::PatternToken;
+using hexengine::core::BytePattern;
+using hexengine::core::PatternToken;
 
 struct Options {
     fs::path manifestPath;
     fs::path stopFilePath;
-    std::size_t scale = cepipeline::benchmarks::kDefaultScale;
+    std::size_t scale = hexengine::benchmarks::kDefaultScale;
 };
 
 struct RegionAllocation {
@@ -215,7 +215,7 @@ void injectAnchorDecoys(
 
     const auto pattern = BytePattern::parse(patternText);
     const auto& tokens = pattern.tokens();
-    constexpr std::size_t kStride = 1 * cepipeline::benchmarks::kOneMegabyte;
+    constexpr std::size_t kStride = 1 * hexengine::benchmarks::kOneMegabyte;
 
     for (std::size_t offset = kStride; offset + tokens.size() < region.size(); offset += kStride) {
         const auto candidateStart = offset;
@@ -278,11 +278,11 @@ int wmain(int argc, wchar_t* argv[]) {
 
     try {
         const auto options = parseArguments(argc, argv);
-        std::array<std::vector<ProtectedRange>, cepipeline::benchmarks::kBaseRegionSizes.size()> protectedRanges;
+        std::array<std::vector<ProtectedRange>, hexengine::benchmarks::kBaseRegionSizes.size()> protectedRanges;
 
-        regions.reserve(cepipeline::benchmarks::kBaseRegionSizes.size());
-        for (std::size_t i = 0; i < cepipeline::benchmarks::kBaseRegionSizes.size(); ++i) {
-            const auto size = cepipeline::benchmarks::kBaseRegionSizes[i] * options.scale;
+        regions.reserve(hexengine::benchmarks::kBaseRegionSizes.size());
+        for (std::size_t i = 0; i < hexengine::benchmarks::kBaseRegionSizes.size(); ++i) {
+            const auto size = hexengine::benchmarks::kBaseRegionSizes[i] * options.scale;
             auto* memory = static_cast<std::byte*>(::VirtualAlloc(
                 nullptr,
                 size,
@@ -299,7 +299,7 @@ int wmain(int argc, wchar_t* argv[]) {
             });
         }
 
-        for (const auto& spec : cepipeline::benchmarks::kPatternSpecs) {
+        for (const auto& spec : hexengine::benchmarks::kPatternSpecs) {
             const auto pattern = BytePattern::parse(spec.patternText);
             protectedRanges[spec.regionIndex].push_back(ProtectedRange{
                 .start = spec.offset,
@@ -307,7 +307,7 @@ int wmain(int argc, wchar_t* argv[]) {
             });
         }
 
-        for (const auto& spec : cepipeline::benchmarks::kPatternSpecs) {
+        for (const auto& spec : hexengine::benchmarks::kPatternSpecs) {
             auto& region = regions[spec.regionIndex];
             const auto bytes = materializePattern(spec.patternText);
             if (spec.offset + bytes.size() >= region.size) {

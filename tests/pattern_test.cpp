@@ -5,11 +5,11 @@
 #include <string_view>
 #include <vector>
 
-#include "cepipeline/memory/pattern.hpp"
+#include "hexengine/core/pattern.hpp"
 
 namespace {
 
-using cepipeline::memory::BytePattern;
+using hexengine::core::BytePattern;
 
 [[noreturn]] void fail(std::string_view message) {
     throw std::runtime_error(std::string(message));

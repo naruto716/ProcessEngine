@@ -1,21 +1,21 @@
-#include "cepipeline/memory/symbol_table.hpp"
+#include "hexengine/engine/symbol_repository.hpp"
 
 #include <algorithm>
 #include <mutex>
 
-namespace cepipeline::memory {
+namespace hexengine::engine {
 
-void SymbolTable::registerSymbol(SymbolRecord symbol) {
+void SymbolRepository::registerSymbol(SymbolRecord symbol) {
     std::unique_lock lock(mutex_);
     symbols_.insert_or_assign(symbol.name, std::move(symbol));
 }
 
-bool SymbolTable::unregisterSymbol(std::string_view name) {
+bool SymbolRepository::unregisterSymbol(std::string_view name) {
     std::unique_lock lock(mutex_);
     return symbols_.erase(std::string(name)) > 0;
 }
 
-std::optional<SymbolRecord> SymbolTable::find(std::string_view name) const {
+std::optional<SymbolRecord> SymbolRepository::find(std::string_view name) const {
     std::shared_lock lock(mutex_);
     const auto iterator = symbols_.find(std::string(name));
     if (iterator == symbols_.end()) {
@@ -25,7 +25,7 @@ std::optional<SymbolRecord> SymbolTable::find(std::string_view name) const {
     return iterator->second;
 }
 
-std::vector<SymbolRecord> SymbolTable::list() const {
+std::vector<SymbolRecord> SymbolRepository::list() const {
     std::shared_lock lock(mutex_);
 
     std::vector<SymbolRecord> records;
@@ -35,15 +35,15 @@ std::vector<SymbolRecord> SymbolTable::list() const {
     }
 
     std::sort(records.begin(), records.end(), [](const SymbolRecord& left, const SymbolRecord& right) {
-        return foldCaseAscii(left.name) < foldCaseAscii(right.name);
+        return core::foldCaseAscii(left.name) < core::foldCaseAscii(right.name);
     });
 
     return records;
 }
 
-void SymbolTable::clear() {
+void SymbolRepository::clear() {
     std::unique_lock lock(mutex_);
     symbols_.clear();
 }
 
-}  // namespace cepipeline::memory
+}  // namespace hexengine::engine

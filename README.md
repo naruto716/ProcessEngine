@@ -23,8 +23,14 @@ The old Visual Studio install was the broken one. The current 2026 install is us
 
 - `CMakeLists.txt`: the main CMake project file
 - `CMakePresets.json`: named configure/build presets for both MSVC and MinGW
-- `include/cepipeline/memory/*`: CE-style memory headers
-- `src/memory/*`: Win32 memory backend and runtime model
+- `docs/architecture.md`: detailed walkthrough of the current `hexengine` design and code layout
+- `include/hexengine/core/*`: engine-neutral value types and pattern parsing
+- `include/hexengine/backend/*`: backend interfaces
+- `include/hexengine/backends/win32/*`: the current Win32 user-mode backend
+- `include/hexengine/engine/*`: session, scanner, symbol, and allocation services
+- `src/backends/win32/*`: Win32 backend implementation
+- `src/core/*`: core implementation such as AOB pattern parsing
+- `src/engine/*`: reusable engine services
 - `src/main.cpp`: a smoke test for the memory layer
 - `scripts/enter-msvc-env.ps1`: loads the Visual Studio developer environment into the current PowerShell session
 - `scripts/check-msvc-env.ps1`: checks `cl` and Visual Studio's bundled CMake
@@ -102,12 +108,22 @@ The `mingw-*` presets pin the compiler and make program explicitly.
 
 ### Memory layer
 
-The project now has a first-pass CE-style memory subsystem in the `ce_runtime_memory` library:
+The project now builds the `hexengine_engine` library. The memory subsystem is split into reusable layers instead of one concrete runtime class:
 
-- `ProcessMemory`: open a process, enumerate modules and pages, read and write memory, change page protection, allocate and free remote memory, and scan AOB patterns
-- `SymbolTable`: case-insensitive registered symbols similar to CE's global symbol table behavior
-- `AllocationManager`: tracks named `alloc` and `globalAlloc` style regions and auto-registers them as symbols
-- `RuntimeMemoryModel`: the higher-level facade that combines process memory, symbols, allocations, `aobScan`, `assert`, and `fullAccess`
+- `hexengine::backend::IProcessBackend`: transport interface for reading, writing, querying, protecting, and allocating process memory
+- `hexengine::backends::win32::Win32ProcessBackend`: the current concrete backend for Win32 user-mode access
+- `hexengine::engine::ProcessScanner`: region-aware AOB scanning built on top of a backend
+- `hexengine::engine::SymbolRepository`: case-insensitive symbol storage
+- `hexengine::engine::AllocationRepository`: allocation state storage
+- `hexengine::engine::AllocationService`: CE-style allocation behavior on top of a backend and symbol store
+- `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services
+- `hexengine::engine::Win32EngineFactory`: a factory that creates `EngineSession` instances with the Win32 backend
+
+This split is the production-oriented seam for future variations:
+
+- mock/in-memory backends for tests
+- alternate user-mode backends
+- future driver-backed or kernel-assisted backends
 
 The smoke test in `src/main.cpp` attaches to the current process, allocates a page, writes bytes, registers symbols, scans for a pattern, and frees the allocation again.
 

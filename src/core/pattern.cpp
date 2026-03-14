@@ -1,11 +1,11 @@
-#include "cepipeline/memory/pattern.hpp"
+#include "hexengine/core/pattern.hpp"
 
 #include <algorithm>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
 
-namespace cepipeline::memory {
+namespace hexengine::core {
 namespace {
 
 [[nodiscard]] int hexValue(char value) noexcept {
@@ -223,4 +223,4 @@ const std::vector<PatternToken>& BytePattern::tokens() const noexcept {
     return tokens_;
 }
 
-}  // namespace cepipeline::memory
+}  // namespace hexengine::core

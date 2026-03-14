@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <string_view>
 
-namespace cepipeline::benchmarks {
+namespace hexengine::benchmarks {
 
 inline constexpr std::size_t kOneMegabyte = 1024 * 1024;
 inline constexpr std::array<std::size_t, 3> kBaseRegionSizes{
@@ -70,4 +70,4 @@ inline constexpr std::size_t kDefaultScale = 1;
 inline constexpr std::size_t kDefaultIterations = 4;
 inline constexpr std::size_t kDefaultWarmupIterations = 1;
 
-}  // namespace cepipeline::benchmarks
+}  // namespace hexengine::benchmarks

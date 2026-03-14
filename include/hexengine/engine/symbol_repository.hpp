@@ -9,25 +9,26 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cepipeline/memory/case_insensitive.hpp"
+#include "hexengine/core/case_insensitive.hpp"
+#include "hexengine/core/memory_types.hpp"
 
-namespace cepipeline::memory {
+namespace hexengine::engine {
 
 enum class SymbolKind {
     UserDefined,
     Allocation,
-    Module
+    Module,
 };
 
 struct SymbolRecord {
     std::string name;
-    std::uintptr_t address = 0;
+    core::Address address = 0;
     std::size_t size = 0;
     SymbolKind kind = SymbolKind::UserDefined;
     bool persistent = true;
 };
 
-class SymbolTable {
+class SymbolRepository {
 public:
     void registerSymbol(SymbolRecord symbol);
     [[nodiscard]] bool unregisterSymbol(std::string_view name);
@@ -37,7 +38,7 @@ public:
 
 private:
     mutable std::shared_mutex mutex_;
-    std::unordered_map<std::string, SymbolRecord, CaseInsensitiveStringHash, CaseInsensitiveStringEqual> symbols_;
+    std::unordered_map<std::string, SymbolRecord, core::CaseInsensitiveStringHash, core::CaseInsensitiveStringEqual> symbols_;
 };
 
-}  // namespace cepipeline::memory
+}  // namespace hexengine::engine

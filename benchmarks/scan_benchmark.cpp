@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cepipeline/memory/process_memory.hpp"
+#include "hexengine/engine/engine_factory.hpp"
 #include "scan_benchmark_fixture.hpp"
 
 namespace fs = std::filesystem;
@@ -36,9 +36,9 @@ struct Manifest {
 
 struct Options {
     fs::path targetPath;
-    std::size_t scale = cepipeline::benchmarks::kDefaultScale;
-    std::size_t iterations = cepipeline::benchmarks::kDefaultIterations;
-    std::size_t warmupIterations = cepipeline::benchmarks::kDefaultWarmupIterations;
+    std::size_t scale = hexengine::benchmarks::kDefaultScale;
+    std::size_t iterations = hexengine::benchmarks::kDefaultIterations;
+    std::size_t warmupIterations = hexengine::benchmarks::kDefaultWarmupIterations;
 };
 
 struct BenchmarkStats {
@@ -278,7 +278,7 @@ private:
 }
 
 [[nodiscard]] bool matchesNaiveAt(
-    const cepipeline::memory::BytePattern& pattern,
+    const hexengine::core::BytePattern& pattern,
     std::span<const std::byte> bytes,
     std::size_t offset) {
     const auto& tokens = pattern.tokens();
@@ -296,7 +296,7 @@ private:
 }
 
 [[nodiscard]] std::vector<std::size_t> findAllNaive(
-    const cepipeline::memory::BytePattern& pattern,
+    const hexengine::core::BytePattern& pattern,
     std::span<const std::byte> bytes) {
     std::vector<std::size_t> offsets;
 
@@ -411,14 +411,15 @@ void printStats(
 }
 
 void runBenchmark(const Options& options) {
-    using cepipeline::memory::AddressRange;
-    using cepipeline::memory::BytePattern;
-    using cepipeline::memory::ProcessMemory;
+    using namespace hexengine::core;
+    using namespace hexengine::engine;
 
     BenchmarkFixtureProcess fixture(options.targetPath, options.scale);
     const auto& manifest = fixture.manifest();
 
-    ProcessMemory process = ProcessMemory::open(manifest.pid);
+    Win32EngineFactory factory;
+    auto engine = factory.open(manifest.pid);
+    auto& process = engine->process();
 
     std::size_t totalBytes = 0;
     for (const auto size : manifest.regionSizes) {
@@ -426,7 +427,7 @@ void runBenchmark(const Options& options) {
     }
 
     std::cout << "Scan benchmark target footprint: "
-              << (totalBytes / cepipeline::benchmarks::kOneMegabyte)
+              << (totalBytes / hexengine::benchmarks::kOneMegabyte)
               << " MB across " << manifest.regionSizes.size() << " committed regions\n";
     std::cout << "\nRemote scan benchmark\n";
     std::cout << std::left << std::setw(18) << "Pattern"
@@ -438,7 +439,7 @@ void runBenchmark(const Options& options) {
               << std::setw(12) << "Max"
               << '\n';
 
-    for (const auto& spec : cepipeline::benchmarks::kPatternSpecs) {
+    for (const auto& spec : hexengine::benchmarks::kPatternSpecs) {
         const BytePattern pattern = BytePattern::parse(spec.patternText);
         const auto expectedAddress = manifest.regionAddresses[spec.regionIndex] + spec.offset;
         const auto regionRange = AddressRange{
@@ -448,7 +449,7 @@ void runBenchmark(const Options& options) {
 
         const auto regionStats = benchmarkPattern(
             [&]() {
-                return process.scan(pattern, regionRange);
+                return engine->scanner().scan(pattern, regionRange);
             },
             expectedAddress,
             options.warmupIterations,
@@ -457,7 +458,7 @@ void runBenchmark(const Options& options) {
 
         const auto processStats = benchmarkPattern(
             [&]() {
-                return process.scan(pattern);
+                return engine->scanner().scan(pattern);
             },
             expectedAddress,
             0,
@@ -475,7 +476,7 @@ void runBenchmark(const Options& options) {
               << std::setw(12) << "Max"
               << '\n';
 
-    for (const auto& spec : cepipeline::benchmarks::kPatternSpecs) {
+    for (const auto& spec : hexengine::benchmarks::kPatternSpecs) {
         const BytePattern pattern = BytePattern::parse(spec.patternText);
         const auto regionStart = manifest.regionAddresses[spec.regionIndex];
         const auto regionSize = manifest.regionSizes[spec.regionIndex];

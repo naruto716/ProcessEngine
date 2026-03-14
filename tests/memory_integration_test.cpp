@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cepipeline/memory/runtime_memory_model.hpp"
+#include "hexengine/engine/engine_factory.hpp"
 #include "memory_test_fixture.hpp"
 
 namespace fs = std::filesystem;
@@ -278,35 +278,37 @@ template <std::size_t Size>
 }
 
 void runIntegration(const fs::path& targetPath) {
-    using namespace cepipeline::memory;
+    using namespace hexengine::core;
+    using namespace hexengine::engine;
 
     FixtureProcess fixture(targetPath);
     const auto& manifest = fixture.manifest();
 
-    expect(manifest.modulePatternSize == cepipeline::tests::kModulePatternBytes.size(), "Unexpected module pattern size");
-    expect(manifest.writableBufferSize == cepipeline::tests::kWritableInitialBytes.size(), "Unexpected writable buffer size");
-    expect(manifest.pagePatternOffset == cepipeline::tests::kPagePatternOffset, "Unexpected page pattern offset");
+    expect(manifest.modulePatternSize == hexengine::tests::kModulePatternBytes.size(), "Unexpected module pattern size");
+    expect(manifest.writableBufferSize == hexengine::tests::kWritableInitialBytes.size(), "Unexpected writable buffer size");
+    expect(manifest.pagePatternOffset == hexengine::tests::kPagePatternOffset, "Unexpected page pattern offset");
 
-    auto runtime = RuntimeMemoryModel::open(manifest.pid);
-    auto& process = runtime.process();
+    Win32EngineFactory factory;
+    auto engine = factory.open(manifest.pid);
+    auto& process = engine->process();
     const auto mainModule = process.mainModule();
 
     expect(mainModule.path == manifest.modulePath.string(), "Main module path mismatch");
 
     const auto initialBytes = process.read(manifest.writableBufferAddress, manifest.writableBufferSize);
-    expect(equalsBytes(initialBytes, cepipeline::tests::kWritableInitialBytes), "Initial remote bytes did not match fixture");
+    expect(equalsBytes(initialBytes, hexengine::tests::kWritableInitialBytes), "Initial remote bytes did not match fixture");
 
-    process.write(manifest.writableBufferAddress, cepipeline::tests::kWritableUpdatedBytes);
+    process.write(manifest.writableBufferAddress, hexengine::tests::kWritableUpdatedBytes);
     const auto updatedBytes = process.read(manifest.writableBufferAddress, manifest.writableBufferSize);
-    expect(equalsBytes(updatedBytes, cepipeline::tests::kWritableUpdatedBytes), "Updated remote bytes did not round-trip");
+    expect(equalsBytes(updatedBytes, hexengine::tests::kWritableUpdatedBytes), "Updated remote bytes did not round-trip");
 
-    expect(runtime.assertBytes(manifest.modulePatternAddress, cepipeline::tests::kModulePatternText), "Module pattern assert failed");
+    expect(engine->assertBytes(manifest.modulePatternAddress, hexengine::tests::kModulePatternText), "Module pattern assert failed");
 
-    const auto moduleHits = runtime.aobScanModule(mainModule.name, cepipeline::tests::kModulePatternWildcardText);
+    const auto moduleHits = engine->aobScanModule(mainModule.name, hexengine::tests::kModulePatternWildcardText);
     expect(containsAddress(moduleHits, manifest.modulePatternAddress), "Module AOB scan did not find the known pattern");
 
-    const auto pageHits = process.scan(
-        BytePattern::parse(cepipeline::tests::kPagePatternWildcardText),
+    const auto pageHits = engine->scanner().scan(
+        BytePattern::parse(hexengine::tests::kPagePatternWildcardText),
         AddressRange{
             .start = manifest.pageAddress,
             .end = manifest.pageAddress + manifest.pageSize,
@@ -319,65 +321,65 @@ void runIntegration(const fs::path& targetPath) {
     expect(region->isReadable(), "Fixture page should be readable");
     expect(region->isWritable(), "Fixture page should be writable");
 
-    const auto moduleSymbol = runtime.resolveSymbol(mainModule.name);
+    const auto moduleSymbol = engine->resolveSymbol(mainModule.name);
     expect(moduleSymbol.has_value(), "Module symbol resolution failed");
     expect(moduleSymbol->address == mainModule.base, "Module symbol did not resolve to the module base");
 
-    const auto registered = runtime.registerSymbol(
+    const auto registered = engine->registerSymbol(
         "fixture.module.pattern",
         manifest.modulePatternAddress,
         manifest.modulePatternSize);
     expect(registered.address == manifest.modulePatternAddress, "Standalone symbol registration returned the wrong address");
 
-    const auto resolved = runtime.resolveSymbol("fixture.module.pattern");
+    const auto resolved = engine->resolveSymbol("fixture.module.pattern");
     expect(resolved.has_value(), "Standalone symbol resolution failed");
     expect(resolved->address == manifest.modulePatternAddress, "Standalone symbol address mismatch");
-    expect(runtime.unregisterSymbol("fixture.module.pattern"), "Standalone symbol unregister failed");
+    expect(engine->unregisterSymbol("fixture.module.pattern"), "Standalone symbol unregister failed");
 
-    const auto localAllocation = runtime.allocate(AllocationRequest{
+    const auto localAllocation = engine->allocate(AllocationRequest{
         .name = "integration.local.alloc",
         .size = 0x1000,
-        .protection = PAGE_READWRITE,
+        .protection = ProtectionFlags::Read | ProtectionFlags::Write,
         .scope = AllocationScope::Local,
         .nearAddress = manifest.modulePatternAddress,
     });
     expect(localAllocation.address != 0, "Local allocation returned a null address");
     expect(distance(localAllocation.address, manifest.modulePatternAddress) <= 0x8000'0000ull, "Near allocation was not placed within +/-2GB");
 
-    process.write(localAllocation.address, cepipeline::tests::kPagePatternBytes);
+    process.write(localAllocation.address, hexengine::tests::kPagePatternBytes);
     expect(
-        runtime.assertBytes(localAllocation.address, cepipeline::tests::kPagePatternText),
+        engine->assertBytes(localAllocation.address, hexengine::tests::kPagePatternText),
         "Allocated page did not contain the expected bytes");
 
-    const auto localSymbol = runtime.resolveSymbol("integration.local.alloc");
+    const auto localSymbol = engine->resolveSymbol("integration.local.alloc");
     expect(localSymbol.has_value(), "Allocation-backed symbol resolution failed");
     expect(localSymbol->address == localAllocation.address, "Allocation-backed symbol address mismatch");
 
-    const auto protectionChange = runtime.fullAccess(localAllocation.address, localAllocation.size);
-    expect(protectionChange.current == PAGE_EXECUTE_READWRITE, "fullAccess did not request PAGE_EXECUTE_READWRITE");
+    const auto protectionChange = engine->fullAccess(localAllocation.address, localAllocation.size);
+    expect(protectionChange.current == kReadWriteExecute, "fullAccess did not request read/write/execute");
 
     const auto localRegion = process.query(localAllocation.address);
     expect(localRegion.has_value(), "Allocated region query failed");
     expect(localRegion->isReadable(), "Allocated region should be readable");
     expect(localRegion->isWritable(), "Allocated region should be writable after fullAccess");
     expect(localRegion->isExecutable(), "Allocated region should be executable after fullAccess");
-    expect(runtime.deallocate("integration.local.alloc"), "Local allocation deallocate failed");
-    expect(!runtime.deallocate("integration.local.alloc"), "Second local allocation deallocate should return false");
+    expect(engine->deallocate("integration.local.alloc"), "Local allocation deallocate failed");
+    expect(!engine->deallocate("integration.local.alloc"), "Second local allocation deallocate should return false");
 
-    const auto globalFirst = runtime.allocate(AllocationRequest{
+    const auto globalFirst = engine->allocate(AllocationRequest{
         .name = "integration.global.alloc",
         .size = 0x1000,
-        .protection = PAGE_READWRITE,
+        .protection = ProtectionFlags::Read | ProtectionFlags::Write,
         .scope = AllocationScope::Global,
     });
-    const auto globalSecond = runtime.allocate(AllocationRequest{
+    const auto globalSecond = engine->allocate(AllocationRequest{
         .name = "integration.global.alloc",
         .size = 0x800,
-        .protection = PAGE_READWRITE,
+        .protection = ProtectionFlags::Read | ProtectionFlags::Write,
         .scope = AllocationScope::Global,
     });
     expect(globalFirst.address == globalSecond.address, "Global allocation reuse did not return the original block");
-    expect(runtime.deallocate("integration.global.alloc"), "Global allocation deallocate failed");
+    expect(engine->deallocate("integration.global.alloc"), "Global allocation deallocate failed");
 }
 
 }  // namespace

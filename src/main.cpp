@@ -6,15 +6,15 @@
 #include <iostream>
 #include <string>
 
-#include "cepipeline/memory/runtime_memory_model.hpp"
+#include "hexengine/engine/engine_factory.hpp"
 
 namespace {
 
-std::string scopeName(cepipeline::memory::AllocationScope scope) {
+std::string scopeName(hexengine::engine::AllocationScope scope) {
     switch (scope) {
-    case cepipeline::memory::AllocationScope::Local:
+    case hexengine::engine::AllocationScope::Local:
         return "local";
-    case cepipeline::memory::AllocationScope::Global:
+    case hexengine::engine::AllocationScope::Global:
         return "global";
     }
 
@@ -25,15 +25,17 @@ std::string scopeName(cepipeline::memory::AllocationScope scope) {
 
 int main() {
     try {
-        using namespace cepipeline::memory;
+        using namespace hexengine::core;
+        using namespace hexengine::engine;
 
-        auto runtime = RuntimeMemoryModel::attachCurrent();
-        const auto mainModule = runtime.process().mainModule();
+        Win32EngineFactory factory;
+        auto engine = factory.attachCurrent();
+        const auto mainModule = engine->process().mainModule();
 
-        const auto allocation = runtime.allocate(AllocationRequest{
+        const auto allocation = engine->allocate(AllocationRequest{
             .name = "example_page",
             .size = 0x1000,
-            .protection = PAGE_READWRITE,
+            .protection = ProtectionFlags::Read | ProtectionFlags::Write,
             .scope = AllocationScope::Global,
         });
 
@@ -49,19 +51,19 @@ int main() {
         };
         constexpr auto kPattern = "DE AD BE EF 13 37 C0 DE";
 
-        runtime.process().write(allocation.address, kPayload);
-        const auto registeredSymbol = runtime.registerSymbol("example_symbol", allocation.address, kPayload.size());
+        engine->process().write(allocation.address, kPayload);
+        const auto registeredSymbol = engine->registerSymbol("example_symbol", allocation.address, kPayload.size());
 
-        const auto matched = runtime.assertBytes(allocation.address, kPattern);
-        const auto localHits = runtime.process().scan(
+        const auto matched = engine->assertBytes(allocation.address, kPattern);
+        const auto localHits = engine->scanner().scan(
             BytePattern::parse(kPattern),
             AddressRange{
                 .start = allocation.address,
                 .end = allocation.address + allocation.size,
             });
-        const auto globalHits = runtime.aobScan(kPattern);
-        const auto region = runtime.process().query(allocation.address);
-        const auto symbol = runtime.resolveSymbol("example_page");
+        const auto globalHits = engine->aobScan(kPattern);
+        const auto region = engine->process().query(allocation.address);
+        const auto symbol = engine->resolveSymbol("example_page");
 
         std::cout << "Main module: " << mainModule.name << " @ 0x" << std::hex << mainModule.base << std::dec << '\n';
         std::cout << "Allocation '" << allocation.name << "' (" << scopeName(allocation.scope) << ") @ 0x"
@@ -75,15 +77,16 @@ int main() {
             std::cout << "Resolved symbol '" << symbol->name << "' -> 0x" << std::hex << symbol->address << std::dec << '\n';
         }
         if (region) {
-            std::cout << "Region protection: 0x" << std::hex << region->protection << std::dec
+            std::cout << "Region protection flags: 0x"
+                      << std::hex << static_cast<std::uint32_t>(region->protection) << std::dec
                       << ", readable=" << region->isReadable()
                       << ", writable=" << region->isWritable()
                       << ", executable=" << region->isExecutable()
                       << '\n';
         }
 
-        const auto releasedAllocation = runtime.deallocate("example_page");
-        const auto releasedSymbol = runtime.unregisterSymbol("example_symbol");
+        const auto releasedAllocation = engine->deallocate("example_page");
+        const auto releasedSymbol = engine->unregisterSymbol("example_symbol");
         std::cout << "Allocation released: " << releasedAllocation << '\n';
         std::cout << "Standalone symbol released: " << releasedSymbol << '\n';
 

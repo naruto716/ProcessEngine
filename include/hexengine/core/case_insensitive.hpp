@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace cepipeline::memory {
+namespace hexengine::core {
 
 inline std::string foldCaseAscii(std::string_view value) {
     std::string folded;
@@ -28,4 +28,4 @@ struct CaseInsensitiveStringEqual {
     }
 };
 
-}  // namespace cepipeline::memory
+}  // namespace hexengine::core
