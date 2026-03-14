@@ -47,7 +47,20 @@ target_compile_features(ce_memory_integration_test PRIVATE cxx_std_20)
 target_include_directories(ce_memory_integration_test PRIVATE include tests)
 target_link_libraries(ce_memory_integration_test PRIVATE ce_runtime_memory)
 
+add_executable(ce_pattern_test
+    tests/pattern_test.cpp
+)
+
+target_compile_features(ce_pattern_test PRIVATE cxx_std_20)
+target_include_directories(ce_pattern_test PRIVATE include tests)
+target_link_libraries(ce_pattern_test PRIVATE ce_runtime_memory)
+
 add_test(
     NAME ce_memory_integration
     COMMAND ce_memory_integration_test --target $<TARGET_FILE:ce_memory_test_target>
+)
+
+add_test(
+    NAME ce_pattern
+    COMMAND ce_pattern_test
 )

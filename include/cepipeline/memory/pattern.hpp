@@ -31,7 +31,12 @@ public:
     [[nodiscard]] const std::vector<PatternToken>& tokens() const noexcept;
 
 private:
+    [[nodiscard]] bool matchesAt(std::span<const std::byte> bytes, std::size_t offset) const noexcept;
+    void rebuildAnchor();
+
     std::vector<PatternToken> tokens_;
+    std::vector<std::byte> anchorBytes_;
+    std::size_t anchorOffset_ = 0;
 };
 
 }  // namespace cepipeline::memory
