@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -292,6 +293,60 @@ template <std::size_t Size>
     return left >= right ? left - right : right - left;
 }
 
+[[nodiscard]] std::vector<std::byte> makeWriteByteStub(std::uintptr_t destination, std::byte value) {
+#if defined(_WIN64)
+    std::vector<std::byte> code{
+        std::byte{0x48},
+        std::byte{0xB8},
+    };
+
+    const auto addressBytes = std::bit_cast<std::array<std::byte, sizeof(std::uint64_t)>>(
+        static_cast<std::uint64_t>(destination));
+    code.insert(code.end(), addressBytes.begin(), addressBytes.end());
+    code.push_back(std::byte{0xC6});
+    code.push_back(std::byte{0x00});
+    code.push_back(value);
+    code.push_back(std::byte{0x31});
+    code.push_back(std::byte{0xC0});
+    code.push_back(std::byte{0xC3});
+    return code;
+#else
+    std::vector<std::byte> code{
+        std::byte{0xB8},
+    };
+
+    const auto addressBytes = std::bit_cast<std::array<std::byte, sizeof(std::uint32_t)>>(
+        static_cast<std::uint32_t>(destination));
+    code.insert(code.end(), addressBytes.begin(), addressBytes.end());
+    code.push_back(std::byte{0xC6});
+    code.push_back(std::byte{0x00});
+    code.push_back(value);
+    code.push_back(std::byte{0x31});
+    code.push_back(std::byte{0xC0});
+    code.push_back(std::byte{0xC2});
+    code.push_back(std::byte{0x04});
+    code.push_back(std::byte{0x00});
+    return code;
+#endif
+}
+
+void waitForByteValue(
+    const hexengine::backend::IProcessBackend& process,
+    std::uintptr_t address,
+    std::byte expectedValue,
+    std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (process.readValue<std::byte>(address) == expectedValue) {
+            return;
+        }
+
+        std::this_thread::sleep_for(10ms);
+    }
+
+    fail("Timed out waiting for executeCode to update the target byte");
+}
+
 void runIntegration(const fs::path& targetPath) {
     using namespace hexengine::core;
     using namespace hexengine::engine;
@@ -540,6 +595,20 @@ void runIntegration(const fs::path& targetPath) {
     expect(localRegion->isExecutable(), "Allocated region should be executable after fullAccess");
     expect(engine->deallocate("integration.local.alloc"), "Local allocation deallocate failed");
     expect(!engine->deallocate("integration.local.alloc"), "Second local allocation deallocate should return false");
+
+    process.writeValue<std::byte>(manifest.writableBufferAddress, std::byte{0x00});
+    const auto executeAllocation = engine->allocate(AllocationRequest{
+        .name = "integration.exec.alloc",
+        .size = 0x1000,
+        .protection = kReadWriteExecute,
+        .scope = AllocationScope::Local,
+    });
+    const auto executeStub = makeWriteByteStub(manifest.writableBufferAddress, std::byte{0x5A});
+    process.write(executeAllocation.address, executeStub);
+    engine->executeCode(executeAllocation.address);
+    waitForByteValue(process, manifest.writableBufferAddress, std::byte{0x5A}, 2s);
+    std::this_thread::sleep_for(25ms);
+    expect(engine->deallocate("integration.exec.alloc"), "Execute-code allocation deallocate failed");
 
     const auto globalFirst = engine->allocate(AllocationRequest{
         .name = "integration.global.alloc",

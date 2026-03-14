@@ -93,6 +93,7 @@ This is the process-access contract:
 - read/write
 - protect
 - allocate/free
+- execute code at a target entrypoint
 - target pointer-size reporting
 
 ### `backends/win32`
@@ -111,6 +112,7 @@ This is where Win32-specific logic lives:
 - `VirtualProtectEx`
 - `VirtualAllocEx`
 - `VirtualFreeEx`
+- `CreateRemoteThread`
 - pointer-size detection
 
 ### `engine`
@@ -135,6 +137,7 @@ This is where reusable engine behavior starts:
 - resolve CE-style address expressions
 - resolve pointer chains
 - copy bytes with CE-style `readMem`
+- execute target code through the backend
 - manage named allocations
 - manage named patches
 - expose a single session object to callers
@@ -241,6 +244,15 @@ caller
       -> IProcessBackend::query(destination)
       -> IProcessBackend::protect(...)   // only if needed
       -> IProcessBackend::write(destination, bytes)
+```
+
+### Execute Target Code
+
+```text
+caller
+  -> EngineSession::executeCode(entry)
+      -> IProcessBackend::executeCode(entry)
+          -> backend-specific execution path
 ```
 
 ## What To Read Next

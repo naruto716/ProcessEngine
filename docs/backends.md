@@ -26,6 +26,7 @@ It defines the engine-facing process access API:
 - `protect()`
 - `allocate()`
 - `free()`
+- `executeCode()`
 
 The purpose of the interface is simple:
 
@@ -51,7 +52,16 @@ This class owns the Win32 details:
 - `VirtualProtectEx`
 - `VirtualAllocEx`
 - `VirtualFreeEx`
+- `CreateRemoteThread`
 - target pointer-size detection
+
+The important naming decision is that the shared backend interface uses `executeCode(entryAddress)`, not `createRemoteThread(...)`.
+
+Why:
+
+- Win32 happens to implement this with `CreateRemoteThread`
+- a future driver-backed backend may need a different execution mechanism
+- the engine contract should describe intent, not one transport-specific API
 
 The rest of the engine should not need to care about those APIs directly.
 

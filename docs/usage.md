@@ -146,7 +146,22 @@ In `hexengine`, this means:
 - temporarily make the destination writable if needed
 - restore the previous protection after the write
 
-## 9. Apply And Restore Patches
+## 9. Execute Remote Code
+
+`executeCode` is the engine-level "run this entrypoint inside the target process" operation:
+
+```cpp
+session->executeCode(entryAddress);
+```
+
+At the common engine interface level, this only means:
+
+- `entryAddress` is executable code in the target process
+- ask the backend to run that code asynchronously
+
+The backend decides how to do that. In the Win32 backend, this is implemented with `CreateRemoteThread`.
+
+## 10. Apply And Restore Patches
 
 Byte patch:
 

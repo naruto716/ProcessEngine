@@ -52,6 +52,7 @@ public:
         core::ProtectionFlags protection = core::kReadWriteExecute,
         std::optional<core::Address> nearAddress = std::nullopt) override;
     void free(core::Address address) override;
+    void executeCode(core::Address entryAddress) override;
 
     [[nodiscard]] HANDLE nativeHandle() const noexcept;
 

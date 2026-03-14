@@ -197,6 +197,10 @@ void EngineSession::readMem(core::Address sourceAddress, core::Address destinati
     detail::writeWithTemporaryProtection(*process_, destinationAddress, bytes);
 }
 
+void EngineSession::executeCode(core::Address entryAddress) {
+    process_->executeCode(entryAddress);
+}
+
 core::ProtectionChange EngineSession::fullAccess(core::Address address, std::size_t size) {
     return process_->protect(address, size, core::kReadWriteExecute);
 }

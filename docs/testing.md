@@ -23,10 +23,11 @@ It currently verifies:
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
 - `readMem` copy into a read-only destination with protection restore
+- `executeCode` running a tiny remote stub through the public session API
 - protection changes
 - direct CE-style address resolution
 - template-style pointer resolution
-- CE-style pointer-string resolution
+- CE-style pointer-expression resolution
 
 Run it through `ctest`:
 

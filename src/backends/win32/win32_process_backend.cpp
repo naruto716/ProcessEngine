@@ -748,6 +748,20 @@ void Win32ProcessBackend::free(core::Address address) {
     }
 }
 
+void Win32ProcessBackend::executeCode(core::Address entryAddress) {
+    UniqueHandle thread(::CreateRemoteThread(
+        handle_,
+        nullptr,
+        0,
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(entryAddress),
+        nullptr,
+        0,
+        nullptr));
+    if (thread.get() == nullptr) {
+        throwLastError("CreateRemoteThread failed");
+    }
+}
+
 HANDLE Win32ProcessBackend::nativeHandle() const noexcept {
     return handle_;
 }

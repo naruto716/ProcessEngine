@@ -67,6 +67,7 @@ public:
         std::string_view pattern) const;
     [[nodiscard]] bool assertBytes(core::Address address, std::string_view pattern) const;
     void readMem(core::Address sourceAddress, core::Address destinationAddress, std::size_t size);
+    void executeCode(core::Address entryAddress);
     [[nodiscard]] core::ProtectionChange fullAccess(core::Address address, std::size_t size);
     [[nodiscard]] core::Address resolveAddress(std::string_view expression) const;
     [[nodiscard]] core::Address resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const;

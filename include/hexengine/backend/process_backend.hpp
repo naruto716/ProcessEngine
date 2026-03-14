@@ -63,6 +63,7 @@ public:
         core::ProtectionFlags protection = core::kReadWriteExecute,
         std::optional<core::Address> nearAddress = std::nullopt) = 0;
     virtual void free(core::Address address) = 0;
+    virtual void executeCode(core::Address entryAddress) = 0;
 };
 
 }  // namespace hexengine::backend

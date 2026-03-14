@@ -131,6 +131,10 @@ public:
         throw std::runtime_error("free not implemented in FakeProcessBackend");
     }
 
+    void executeCode(core::Address) override {
+        throw std::runtime_error("executeCode not implemented in FakeProcessBackend");
+    }
+
 private:
     std::size_t pointerSize_ = 0;
     std::vector<core::ModuleInfo> modules_;
