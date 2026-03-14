@@ -6,7 +6,7 @@
 #include <iostream>
 #include <string>
 
-#include "hexengine/engine/engine_factory.hpp"
+#include "hexengine/engine/win32_engine_factory.hpp"
 
 namespace {
 

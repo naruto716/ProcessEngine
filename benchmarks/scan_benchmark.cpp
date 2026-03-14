@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "hexengine/engine/engine_factory.hpp"
+#include "hexengine/engine/win32_engine_factory.hpp"
 #include "scan_benchmark_fixture.hpp"
 
 namespace fs = std::filesystem;

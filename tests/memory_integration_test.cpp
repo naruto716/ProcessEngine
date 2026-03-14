@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "hexengine/engine/engine_factory.hpp"
+#include "hexengine/engine/win32_engine_factory.hpp"
 #include "memory_test_fixture.hpp"
 
 namespace fs = std::filesystem;

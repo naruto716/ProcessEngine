@@ -117,7 +117,8 @@ The project now builds the `hexengine_engine` library. The memory subsystem is s
 - `hexengine::engine::AllocationRepository`: allocation state storage
 - `hexengine::engine::AllocationService`: CE-style allocation behavior on top of a backend and symbol store
 - `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services
-- `hexengine::engine::Win32EngineFactory`: a factory that creates `EngineSession` instances with the Win32 backend
+- `hexengine::engine::IEngineFactory`: abstract factory seam for engine session construction
+- `hexengine::engine::Win32EngineFactory`: the current concrete factory for Win32-backed `EngineSession` instances
 
 This split is the production-oriented seam for future variations:
 

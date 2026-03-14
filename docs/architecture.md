@@ -32,7 +32,8 @@ Relevant code:
 - `IProcessBackend`: [`../include/hexengine/backend/process_backend.hpp`](../include/hexengine/backend/process_backend.hpp)
 - `Win32ProcessBackend`: [`../include/hexengine/backends/win32/win32_process_backend.hpp`](../include/hexengine/backends/win32/win32_process_backend.hpp)
 - `EngineSession`: [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
-- `Win32EngineFactory`: [`../include/hexengine/engine/engine_factory.hpp`](../include/hexengine/engine/engine_factory.hpp)
+- `IEngineFactory`: [`../include/hexengine/engine/engine_factory.hpp`](../include/hexengine/engine/engine_factory.hpp)
+- `Win32EngineFactory`: [`../include/hexengine/engine/win32_engine_factory.hpp`](../include/hexengine/engine/win32_engine_factory.hpp)
 
 ## 2. Why The Code Is Split This Way
 
@@ -100,6 +101,7 @@ This is the orchestration layer.
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
 - [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
 - [`../include/hexengine/engine/engine_factory.hpp`](../include/hexengine/engine/engine_factory.hpp)
+- [`../include/hexengine/engine/win32_engine_factory.hpp`](../include/hexengine/engine/win32_engine_factory.hpp)
 
 The engine layer is where CE-style behavior starts to appear.
 
@@ -418,7 +420,9 @@ Examples:
 
 ## 12. EngineFactory: Construction Boundary
 
-`Win32EngineFactory` is declared in [`../include/hexengine/engine/engine_factory.hpp`](../include/hexengine/engine/engine_factory.hpp) and implemented in [`../src/engine/engine_factory.cpp`](../src/engine/engine_factory.cpp).
+`IEngineFactory` is declared in [`../include/hexengine/engine/engine_factory.hpp`](../include/hexengine/engine/engine_factory.hpp).
+
+`Win32EngineFactory` is declared in [`../include/hexengine/engine/win32_engine_factory.hpp`](../include/hexengine/engine/win32_engine_factory.hpp) and implemented in [`../src/engine/engine_factory.cpp`](../src/engine/engine_factory.cpp).
 
 The purpose of the factory is simple:
 
@@ -439,6 +443,22 @@ Later, this pattern is the seam for:
 
 - `MockEngineFactory`
 - `DriverEngineFactory`
+
+### Do we need `IEngineFactory`?
+
+Short answer: not strictly, but it is a reasonable seam here.
+
+You do not need a base interface just to make multiple factory classes expose the same methods. In C++, separate classes can simply have the same method names and signatures.
+
+You do want `IEngineFactory` when you need runtime polymorphism, for example:
+
+- the app host chooses the backend type from config
+- tests inject a mock factory into the same app code path
+- the UI layer stores "some factory" without caring which concrete backend it creates
+
+If the codebase only ever constructs `Win32EngineFactory` directly, the interface is optional and could be removed. If you expect `Win32`, `Mock`, and `Driver` factories to be selected behind one app-facing seam, keeping `IEngineFactory` is the cleaner production choice.
+
+The current design is using the interface as that seam.
 
 ## 13. Common Execution Paths
 
@@ -525,7 +545,62 @@ caller
 
 This is a good example of a high-level CE-like helper that still stays thin.
 
-## 14. How This Fits A Future WebView App
+## 14. Minimal Usage Example
+
+This is what normal engine usage should look like from native application code.
+
+```cpp
+#include <array>
+#include <cstddef>
+
+#include "hexengine/engine/allocation_repository.hpp"
+#include "hexengine/engine/win32_engine_factory.hpp"
+
+int main() {
+    using namespace hexengine;
+
+    engine::Win32EngineFactory factory;
+    auto session = factory.open(/* pid */ 1234);
+
+    auto hits = session->aobScanModule("game.exe", "48 8B ?? ?? ?? 89");
+    if (hits.empty()) {
+        return 1;
+    }
+
+    const auto hookAddress = hits.front();
+
+    const auto cave = session->allocate(engine::AllocationRequest{
+        .name = "myCodecave",
+        .size = 0x1000,
+        .protection = core::kReadWriteExecute,
+        .scope = engine::AllocationScope::Local,
+        .nearAddress = hookAddress,
+    });
+
+    session->registerSymbol("player_base", cave.address, cave.size);
+    session->fullAccess(hookAddress, 16);
+
+    const std::array<std::byte, 5> patch{
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+    };
+    session->process().write(hookAddress, patch);
+
+    return 0;
+}
+```
+
+This example shows the intended split:
+
+- the factory opens the session
+- the session is the main engine object
+- low-level reads and writes still exist through `process()`
+- higher-level helpers like scan, allocate, symbol registration, and `fullAccess` stay on the session
+
+## 15. How This Fits A Future WebView App
 
 The current code is the engine layer, not the application boundary.
 
@@ -554,7 +629,7 @@ What the app layer should not do:
 
 That separation will keep the engine testable and keep the UI thin.
 
-## 15. How To Add Another Backend
+## 16. How To Add Another Backend
 
 The clean path for a new backend is:
 
@@ -587,7 +662,7 @@ The engine layer would not need major changes.
 
 This is the main pay-off of the current split.
 
-## 16. How The Tests Reflect The Architecture
+## 17. How The Tests Reflect The Architecture
 
 The tests already exercise the design seams.
 
@@ -627,7 +702,7 @@ Files:
 
 The benchmark exercises the scanner and pattern engine under a larger synthetic footprint that behaves more like a game process.
 
-## 17. What Is Still Missing
+## 18. What Is Still Missing
 
 This architecture is a good base, but it is not the final engine yet.
 
@@ -646,7 +721,7 @@ In other words:
 - the engine transport and session foundation are now in place
 - the future CE-like script runtime should build on top of this, not beside it
 
-## 18. Practical Reading Order
+## 19. Practical Reading Order
 
 If you want to understand the code quickly, read in this order:
 
@@ -660,4 +735,3 @@ If you want to understand the code quickly, read in this order:
 8. [`../src/core/pattern.cpp`](../src/core/pattern.cpp)
 
 That sequence goes from the stable data model to the backend contract, then to composition, then to the concrete implementation details.
-
