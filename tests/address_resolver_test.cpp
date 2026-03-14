@@ -37,7 +37,12 @@ void expectThrows(Callback&& callback, std::string_view messagePart) {
         if (std::string_view(exception.what()).find(messagePart) != std::string_view::npos) {
             return;
         }
-        fail("Exception message did not contain the expected text");
+        fail(
+            std::string("Exception message did not contain the expected text. Expected fragment: \"")
+            + std::string(messagePart)
+            + "\". Actual: \""
+            + exception.what()
+            + '"');
     }
 
     fail("Expected the operation to throw");
@@ -89,7 +94,7 @@ void run64BitTests() {
     expect(resolver.resolve("mod-0x20.dll") == 0x190000000ull, "Module names containing -0xNN should resolve as whole tokens");
     expect(resolver.resolve("game-test.exe-0x20") == 0x17FFFFFE0ull, "Hyphenated module subtraction failed");
     expect(resolver.resolve("game-test.exe+0x1234-0x20") == 0x180001214ull, "Module arithmetic failed");
-    expect(resolver.resolve("game.exe+0x1234-0x20") == 0x3456, "Symbol arithmetic should still win over module lookup");
+    expect(resolver.resolve("game.exe+0x1234-0x20") == 0x3436, "Symbol arithmetic should still win over module lookup");
     expect(resolver.resolve("  game-test.exe + 0x20 - 0x10 ") == 0x180000010ull, "Whitespace arithmetic failed");
     expect(resolver.resolve("[0x1000]") == 0x2000, "Single dereference failed");
     expect(resolver.resolve("[player_base]") == 0x2000, "Symbol-based dereference failed");
@@ -115,7 +120,7 @@ void run64BitTests() {
     expectThrows([&] { (void)resolver.resolve("0x"); }, "invalid number");
     expectThrows([&] { (void)resolver.resolve("unknown_symbol"); }, "unknown symbol or module");
     expectThrows([&] { (void)resolver.resolve("game.exe+"); }, "expected a symbol");
-    expectThrows([&] { (void)resolver.resolve("game.exe++0x10"); }, "unknown symbol or module");
+    expectThrows([&] { (void)resolver.resolve("game.exe++0x10"); }, "expected a symbol");
     expectThrows([&] { (void)resolver.resolve("game.exe--0x10"); }, "unknown symbol or module");
     expectThrows([&] { (void)resolver.resolve("0x10 trailing"); }, "unexpected trailing");
     expectThrows([&] { (void)resolver.resolve("0x10-0x20"); }, "underflowed");

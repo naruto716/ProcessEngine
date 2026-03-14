@@ -39,6 +39,7 @@ The engine currently covers:
 - AOB scanning
 - CE-style address expression resolution
 - multilevel pointer-chain resolution
+- CE-style `readMem` byte copying
 - named patch management
 
 The engine does not yet try to be a full Cheat Engine replacement. It is the runtime foundation that future higher-level trainer features can build on.

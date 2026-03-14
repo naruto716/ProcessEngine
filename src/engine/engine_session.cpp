@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "write_with_temporary_protection.hpp"
+
 namespace hexengine::engine {
 namespace {
 
@@ -168,6 +170,15 @@ bool EngineSession::assertBytes(core::Address address, std::string_view pattern)
     const auto parsed = core::BytePattern::parse(pattern);
     const auto bytes = process_->read(address, parsed.size());
     return parsed.matches(bytes);
+}
+
+void EngineSession::readMem(core::Address sourceAddress, core::Address destinationAddress, std::size_t size) {
+    if (size == 0) {
+        throw std::invalid_argument("readMem size must be greater than zero");
+    }
+
+    const auto bytes = process_->read(sourceAddress, size);
+    detail::writeWithTemporaryProtection(*process_, destinationAddress, bytes);
 }
 
 core::ProtectionChange EngineSession::fullAccess(core::Address address, std::size_t size) {

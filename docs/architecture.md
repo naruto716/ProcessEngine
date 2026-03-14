@@ -133,6 +133,7 @@ This is where reusable engine behavior starts:
 - manage symbols
 - resolve CE-style address expressions
 - resolve pointer chains
+- copy bytes with CE-style `readMem`
 - manage named allocations
 - manage named patches
 - expose a single session object to callers
@@ -220,6 +221,17 @@ caller
           -> IProcessBackend::protect(...)   // only if needed
           -> IProcessBackend::write(...)
           -> PatchRepository::erase(...)
+```
+
+### Copy Bytes With `readMem`
+
+```text
+caller
+  -> EngineSession::readMem(source, destination, size)
+      -> IProcessBackend::read(source, size)
+      -> IProcessBackend::query(destination)
+      -> IProcessBackend::protect(...)   // only if needed
+      -> IProcessBackend::write(destination, bytes)
 ```
 
 ## What To Read Next

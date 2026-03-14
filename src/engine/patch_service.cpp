@@ -1,8 +1,9 @@
 #include "hexengine/engine/patch_service.hpp"
 
-#include <algorithm>
 #include <sstream>
 #include <stdexcept>
+
+#include "write_with_temporary_protection.hpp"
 
 namespace hexengine::engine {
 namespace {
@@ -15,49 +16,6 @@ namespace {
 
 [[nodiscard]] std::vector<std::byte> toOwnedBytes(std::span<const std::byte> bytes) {
     return std::vector<std::byte>(bytes.begin(), bytes.end());
-}
-
-[[nodiscard]] core::ProtectionFlags makeWritableProtection(const core::MemoryRegion& region) {
-    auto protection = region.protection;
-    protection |= core::ProtectionFlags::Read | core::ProtectionFlags::Write;
-    protection &= ~(core::ProtectionFlags::NoAccess | core::ProtectionFlags::Guard);
-    return protection;
-}
-
-void writeWithTemporaryProtection(
-    backend::IProcessBackend& process,
-    core::Address address,
-    std::span<const std::byte> bytes) {
-    if (bytes.empty()) {
-        return;
-    }
-
-    const auto region = process.query(address);
-    if (!region.has_value()) {
-        throw std::runtime_error("Unable to query patch target region");
-    }
-
-    std::optional<core::ProtectionFlags> restoreProtection;
-    if (!region->isWritable()) {
-        const auto change = process.protect(address, bytes.size(), makeWritableProtection(*region));
-        restoreProtection = change.previous;
-    }
-
-    try {
-        process.write(address, bytes);
-    } catch (...) {
-        if (restoreProtection.has_value()) {
-            try {
-                (void)process.protect(address, bytes.size(), *restoreProtection);
-            } catch (...) {
-            }
-        }
-        throw;
-    }
-
-    if (restoreProtection.has_value()) {
-        (void)process.protect(address, bytes.size(), *restoreProtection);
-    }
 }
 
 [[nodiscard]] std::vector<std::byte> buildNops(std::size_t size) {
@@ -95,7 +53,7 @@ PatchRecord PatchService::apply(const PatchRequest& request) {
         throw std::runtime_error(buildError("Patch expected bytes did not match process memory", request.name));
     }
 
-    writeWithTemporaryProtection(process_, request.address, request.replacement);
+    detail::writeWithTemporaryProtection(process_, request.address, request.replacement);
 
     PatchRecord record{
         .name = request.name,
@@ -146,7 +104,7 @@ bool PatchService::restore(std::string_view name) {
         return false;
     }
 
-    writeWithTemporaryProtection(process_, record->address, record->originalBytes);
+    detail::writeWithTemporaryProtection(process_, record->address, record->originalBytes);
     (void)records_.erase(name);
     return true;
 }

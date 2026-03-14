@@ -474,6 +474,9 @@ void runIntegration(const fs::path& targetPath) {
     expect(localSymbol.has_value(), "Allocation-backed symbol resolution failed");
     expect(localSymbol->address == localAllocation.address, "Allocation-backed symbol address mismatch");
 
+    const auto readMemDestination = localAllocation.address + 0x100;
+    process.write(readMemDestination, std::array<std::byte, hexengine::tests::kModulePatternBytes.size()>{});
+
     const std::array<std::byte, 5> localPatchExpected{
         hexengine::tests::kPagePatternBytes[0],
         hexengine::tests::kPagePatternBytes[1],
@@ -485,6 +488,13 @@ void runIntegration(const fs::path& targetPath) {
     const auto localReadOnlyRegion = process.query(localAllocation.address);
     expect(localReadOnlyRegion.has_value(), "Read-only local region query failed");
     expect(!localReadOnlyRegion->isWritable(), "Local allocation should be read-only before the NOP patch");
+
+    engine->readMem(manifest.modulePatternAddress, readMemDestination, manifest.modulePatternSize);
+    const auto readMemBytes = process.read(readMemDestination, manifest.modulePatternSize);
+    expect(equalsBytes(readMemBytes, hexengine::tests::kModulePatternBytes), "readMem did not copy the expected bytes");
+    const auto regionAfterReadMem = process.query(localAllocation.address);
+    expect(regionAfterReadMem.has_value(), "Region query after readMem failed");
+    expect(!regionAfterReadMem->isWritable(), "readMem should restore the original protection after writing");
 
     const auto nopPatch = engine->applyNopPatch(
         "integration.nop.patch",

@@ -123,7 +123,22 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
-## 8. Apply And Restore Patches
+## 8. Copy Bytes With `readMem`
+
+`readMem` is the CE-style byte-copy helper:
+
+```cpp
+session->readMem(sourceAddress, destinationAddress, 16);
+```
+
+In `hexengine`, this means:
+
+- read `size` bytes from `sourceAddress`
+- write those bytes to `destinationAddress`
+- temporarily make the destination writable if needed
+- restore the previous protection after the write
+
+## 9. Apply And Restore Patches
 
 Byte patch:
 

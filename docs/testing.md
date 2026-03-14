@@ -22,6 +22,7 @@ It currently verifies:
 - allocation and deallocation
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
+- `readMem` copy into a read-only destination with protection restore
 - protection changes
 - direct CE-style address resolution
 - template-style pointer resolution
