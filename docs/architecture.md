@@ -30,6 +30,7 @@ caller
               -> backends::win32::Win32ProcessBackend
           -> engine::ProcessScanner
           -> engine::SymbolRepository
+          -> engine::AddressResolver
           -> engine::PointerResolver
           -> engine::AllocationRepository
           -> engine::AllocationService
@@ -118,6 +119,7 @@ Files:
 
 - [`../include/hexengine/engine/process_scanner.hpp`](../include/hexengine/engine/process_scanner.hpp)
 - [`../include/hexengine/engine/symbol_repository.hpp`](../include/hexengine/engine/symbol_repository.hpp)
+- [`../include/hexengine/engine/address_resolver.hpp`](../include/hexengine/engine/address_resolver.hpp)
 - [`../include/hexengine/engine/pointer_resolver.hpp`](../include/hexengine/engine/pointer_resolver.hpp)
 - [`../include/hexengine/engine/allocation_repository.hpp`](../include/hexengine/engine/allocation_repository.hpp)
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
@@ -129,6 +131,7 @@ This is where reusable engine behavior starts:
 
 - scan memory
 - manage symbols
+- resolve CE-style address expressions
 - resolve pointer chains
 - manage named allocations
 - manage named patches
@@ -157,6 +160,15 @@ caller
           -> BytePattern::findAll(...)
 ```
 
+### Resolve An Address Expression
+
+```text
+caller
+  -> EngineSession::resolveAddress("game.exe+0x1234-0x20")
+      -> AddressResolver::resolve(...)
+          -> symbol lookup / module lookup / pointer dereference
+```
+
 ### Resolve A Pointer Chain
 
 ```text
@@ -166,12 +178,12 @@ caller
           -> IProcessBackend::readValue<uint32_t/uint64_t>(...)
 ```
 
-Or with the CE-style wrapper:
+Or with a CE-style address string:
 
 ```text
 caller
-  -> EngineSession::resolvePointer("[[game.exe+0x123]+0x18]+0x30")
-      -> PointerResolver::resolve(expression)
+  -> EngineSession::resolveAddress("[[game.exe+0x123]+0x18]+0x30")
+      -> AddressResolver::resolve(expression)
 ```
 
 ### Allocate And Register

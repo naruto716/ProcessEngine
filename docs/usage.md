@@ -46,7 +46,14 @@ auto hits = session->aobScanModule("game.exe", "48 8B ?? ?? ?? 89");
 
 Direct scanner access is also available if you need to pass an explicit `BytePattern` or address range.
 
-## 4. Resolve Pointer Chains
+## 4. Resolve Addresses And Pointer Chains
+
+Direct CE-style address resolution:
+
+```cpp
+auto hookAddress = session->resolveAddress("game.exe+0x1234-0x20");
+auto playerBase = session->resolveAddress("[[player_base+0x10]+0x30]");
+```
 
 Template-style chain:
 
@@ -58,8 +65,8 @@ auto value = session->readPointerValue<std::uint32_t>(baseAddress, 0x18, 0x30);
 CE-style wrapper:
 
 ```cpp
-auto finalAddress = session->resolvePointer("[[game.exe+0x123]+0x18]+0x30");
-auto value = session->readPointerValue<std::uint32_t>("[[game.exe+0x123]+0x18]+0x30");
+auto finalAddress = session->resolveAddress("[[game.exe+0x123]+0x18]+0x30");
+auto value = session->process().readValue<std::uint32_t>(finalAddress);
 ```
 
 For more detail, see [Pointers](pointers.md).

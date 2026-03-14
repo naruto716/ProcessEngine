@@ -422,18 +422,37 @@ void runIntegration(const fs::path& targetPath) {
         manifest.pointerRootStorageAddress,
         sizeof(std::uintptr_t));
     expect(pointerRootSymbol.address == manifest.pointerRootStorageAddress, "Pointer root symbol registration failed");
-    const auto pointerBySymbol = engine->resolvePointer(
+    const auto hyphenatedPointerRootSymbol = engine->registerSymbol(
+        "fixture-pointer-root",
+        manifest.pointerRootStorageAddress,
+        sizeof(std::uintptr_t));
+    expect(hyphenatedPointerRootSymbol.address == manifest.pointerRootStorageAddress, "Hyphenated pointer root symbol registration failed");
+
+    const auto addressBySymbolExpression = engine->resolveAddress("fixture-pointer-root-0x10");
+    expect(addressBySymbolExpression == manifest.pointerRootStorageAddress - 0x10, "Symbol subtraction expression returned the wrong address");
+
+    const auto pointerBySymbol = engine->resolveAddress(
         "[[fixture.pointer.root+0x0]+0x18]+0x30");
     expect(pointerBySymbol == manifest.pointerFinalAddress, "Symbol-based pointer expression returned the wrong address");
+    const auto pointerBySubtractExpression = engine->resolveAddress(
+        "[[fixture.pointer.root+0x0]+0x18]+0x30-0x10+0x10");
+    expect(pointerBySubtractExpression == manifest.pointerFinalAddress, "Nested address expression with subtraction returned the wrong address");
 
     std::ostringstream pointerExpression;
     pointerExpression << "[[" << mainModule.name << "+0x" << std::hex
                       << (manifest.pointerRootStorageAddress - mainModule.base)
                       << "]+0x18]+0x30";
-    const auto pointerByModuleExpression = engine->resolvePointer(pointerExpression.str());
+    const auto pointerByModuleExpression = engine->resolveAddress(pointerExpression.str());
     expect(pointerByModuleExpression == manifest.pointerFinalAddress, "Module-based pointer expression returned the wrong address");
 
-    const auto pointerValueByExpression = engine->readPointerValue<std::uint32_t>(pointerExpression.str());
+    std::ostringstream moduleAddressExpression;
+    moduleAddressExpression << mainModule.name << "+0x" << std::hex
+                            << (manifest.pointerRootStorageAddress - mainModule.base)
+                            << "-0x10";
+    const auto addressByModuleExpression = engine->resolveAddress(moduleAddressExpression.str());
+    expect(addressByModuleExpression == manifest.pointerRootStorageAddress - 0x10, "Module subtraction expression returned the wrong address");
+
+    const auto pointerValueByExpression = process.readValue<std::uint32_t>(engine->resolveAddress(pointerExpression.str()));
     expect(pointerValueByExpression == hexengine::tests::kPointerValue, "Pointer expression read returned the wrong value");
 
     const auto localAllocation = engine->allocate(AllocationRequest{

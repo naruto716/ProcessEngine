@@ -23,6 +23,7 @@ It currently verifies:
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
 - protection changes
+- direct CE-style address resolution
 - template-style pointer resolution
 - CE-style pointer-string resolution
 
@@ -42,6 +43,23 @@ File:
 This is the focused correctness test for AOB pattern parsing and matching.
 
 It is intentionally separate from remote process memory behavior.
+
+## Address Resolver Test
+
+File:
+
+- [`../tests/address_resolver_test.cpp`](../tests/address_resolver_test.cpp)
+
+This is the focused parser and expression-resolution test for:
+
+- module and symbol lookup
+- `+` / `-` arithmetic
+- nested `[...]` dereference chains
+- hyphenated symbol and module names
+- 32-bit and 64-bit pointer dereference behavior
+- malformed-expression failures
+
+It uses a fake backend so these cases can be tested thoroughly without spawning a real process.
 
 ## Scan Benchmark
 

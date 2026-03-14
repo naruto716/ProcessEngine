@@ -18,7 +18,8 @@ backend::IProcessBackend& requireProcess(const std::unique_ptr<backend::IProcess
 EngineSession::EngineSession(std::unique_ptr<backend::IProcessBackend> process)
     : process_(std::move(process)),
       scanner_(requireProcess(process_)),
-      pointers_(requireProcess(process_), symbols_),
+      addresses_(requireProcess(process_), symbols_),
+      pointers_(requireProcess(process_), addresses_),
       allocations_(requireProcess(process_), symbols_, allocationRecords_),
       patches_(requireProcess(process_), patchRecords_) {
 }
@@ -45,6 +46,14 @@ SymbolRepository& EngineSession::symbols() noexcept {
 
 const SymbolRepository& EngineSession::symbols() const noexcept {
     return symbols_;
+}
+
+AddressResolver& EngineSession::addresses() noexcept {
+    return addresses_;
+}
+
+const AddressResolver& EngineSession::addresses() const noexcept {
+    return addresses_;
 }
 
 PointerResolver& EngineSession::pointers() noexcept {
@@ -165,12 +174,12 @@ core::ProtectionChange EngineSession::fullAccess(core::Address address, std::siz
     return process_->protect(address, size, core::kReadWriteExecute);
 }
 
-core::Address EngineSession::resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const {
-    return pointers_.resolve(base, offsets);
+core::Address EngineSession::resolveAddress(std::string_view expression) const {
+    return addresses_.resolve(expression);
 }
 
-core::Address EngineSession::resolvePointer(std::string_view expression) const {
-    return pointers_.resolve(expression);
+core::Address EngineSession::resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const {
+    return pointers_.resolve(base, offsets);
 }
 
 }  // namespace hexengine::engine

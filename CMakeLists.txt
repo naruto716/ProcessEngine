@@ -10,6 +10,7 @@ enable_testing()
 
 add_library(hexengine_engine
     src/backends/win32/win32_process_backend.cpp
+    src/engine/address_resolver.cpp
     src/core/pattern.cpp
     src/engine/allocation_repository.cpp
     src/engine/allocation_service.cpp
@@ -61,6 +62,14 @@ target_compile_features(ce_pattern_test PRIVATE cxx_std_20)
 target_include_directories(ce_pattern_test PRIVATE include tests)
 target_link_libraries(ce_pattern_test PRIVATE hexengine_engine)
 
+add_executable(ce_address_resolver_test
+    tests/address_resolver_test.cpp
+)
+
+target_compile_features(ce_address_resolver_test PRIVATE cxx_std_20)
+target_include_directories(ce_address_resolver_test PRIVATE include tests)
+target_link_libraries(ce_address_resolver_test PRIVATE hexengine_engine)
+
 add_executable(ce_scan_benchmark_target
     benchmarks/scan_benchmark_target.cpp
 )
@@ -85,4 +94,9 @@ add_test(
 add_test(
     NAME ce_pattern
     COMMAND ce_pattern_test
+)
+
+add_test(
+    NAME ce_address_resolver
+    COMMAND $<TARGET_FILE:ce_address_resolver_test>
 )

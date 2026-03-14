@@ -11,7 +11,7 @@ This folder is the documentation home for `hexengine`.
   How to open a session and use the current engine APIs.
 
 - [Pointers](pointers.md)
-  How multilevel pointer resolution works, including CE-style address strings.
+  How CE-style address expressions and multilevel pointer resolution work.
 
 - [Patching](patching.md)
   Named byte patches, NOP helpers, restore, and CE-style enable/disable semantics.
@@ -37,6 +37,7 @@ The engine currently covers:
 - alloc/free
 - symbol registration
 - AOB scanning
+- CE-style address expression resolution
 - multilevel pointer-chain resolution
 - named patch management
 

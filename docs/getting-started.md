@@ -58,7 +58,7 @@ ctest --test-dir build\mingw-debug --output-on-failure
 - `include/hexengine/backends/win32/*`
   Win32 backend
 - `include/hexengine/engine/*`
-  session, pointer, scan, symbol, and allocation services
+  session, address, pointer, scan, symbol, allocation, and patch services
 - `src/*`
   implementations
 - `tests/*`

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "hexengine/backend/process_backend.hpp"
+#include "hexengine/engine/address_resolver.hpp"
 #include "hexengine/engine/allocation_service.hpp"
 #include "hexengine/engine/patch_service.hpp"
 #include "hexengine/engine/pointer_resolver.hpp"
@@ -25,6 +26,8 @@ public:
     [[nodiscard]] const ProcessScanner& scanner() const noexcept;
     [[nodiscard]] SymbolRepository& symbols() noexcept;
     [[nodiscard]] const SymbolRepository& symbols() const noexcept;
+    [[nodiscard]] AddressResolver& addresses() noexcept;
+    [[nodiscard]] const AddressResolver& addresses() const noexcept;
     [[nodiscard]] PointerResolver& pointers() noexcept;
     [[nodiscard]] const PointerResolver& pointers() const noexcept;
     [[nodiscard]] AllocationService& allocations() noexcept;
@@ -60,8 +63,8 @@ public:
     [[nodiscard]] std::vector<core::Address> aobScanModule(std::string_view moduleName, std::string_view pattern) const;
     [[nodiscard]] bool assertBytes(core::Address address, std::string_view pattern) const;
     [[nodiscard]] core::ProtectionChange fullAccess(core::Address address, std::size_t size);
+    [[nodiscard]] core::Address resolveAddress(std::string_view expression) const;
     [[nodiscard]] core::Address resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const;
-    [[nodiscard]] core::Address resolvePointer(std::string_view expression) const;
 
     template <typename... Offsets>
     [[nodiscard]] core::Address resolvePointer(core::Address base, Offsets... offsets) const {
@@ -75,13 +78,14 @@ public:
 
     template <typename T>
     [[nodiscard]] T readPointerValue(std::string_view expression) const {
-        return pointers_.read<T>(expression);
+        return process_->readValue<T>(resolveAddress(expression));
     }
 
 private:
     std::unique_ptr<backend::IProcessBackend> process_;
     ProcessScanner scanner_;
     SymbolRepository symbols_;
+    AddressResolver addresses_;
     PointerResolver pointers_;
     AllocationRepository allocationRecords_;
     AllocationService allocations_;

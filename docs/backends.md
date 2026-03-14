@@ -32,6 +32,8 @@ The purpose of the interface is simple:
 - upper engine layers depend on this contract
 - OS-specific code stays below it
 
+Services like [`../include/hexengine/engine/address_resolver.hpp`](../include/hexengine/engine/address_resolver.hpp) and [`../include/hexengine/engine/pointer_resolver.hpp`](../include/hexengine/engine/pointer_resolver.hpp) intentionally live above this boundary. They consume module lookup and memory reads from the backend, but they are not backend responsibilities.
+
 ## `Win32ProcessBackend`
 
 The current implementation lives in:
