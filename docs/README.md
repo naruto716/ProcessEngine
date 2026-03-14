@@ -37,6 +37,7 @@ The engine currently covers:
 - alloc/free
 - symbol registration
 - AOB scanning
+- region-limited AOB scanning
 - CE-style address expression resolution
 - multilevel pointer-chain resolution
 - CE-style `readMem` byte copying

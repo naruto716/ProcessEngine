@@ -166,6 +166,22 @@ std::vector<core::Address> EngineSession::aobScanModule(std::string_view moduleN
     return scanner_.scanModule(moduleName, core::BytePattern::parse(pattern));
 }
 
+std::vector<core::Address> EngineSession::aobScanRegion(
+    core::Address startAddress,
+    core::Address stopAddress,
+    std::string_view pattern) const {
+    if (stopAddress <= startAddress) {
+        throw std::invalid_argument("AOB scan region stop address must be greater than the start address");
+    }
+
+    return scanner_.scan(
+        core::BytePattern::parse(pattern),
+        core::AddressRange{
+            .start = startAddress,
+            .end = stopAddress,
+        });
+}
+
 bool EngineSession::assertBytes(core::Address address, std::string_view pattern) const {
     const auto parsed = core::BytePattern::parse(pattern);
     const auto bytes = process_->read(address, parsed.size());

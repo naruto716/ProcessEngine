@@ -61,6 +61,10 @@ public:
 
     [[nodiscard]] std::vector<core::Address> aobScan(std::string_view pattern) const;
     [[nodiscard]] std::vector<core::Address> aobScanModule(std::string_view moduleName, std::string_view pattern) const;
+    [[nodiscard]] std::vector<core::Address> aobScanRegion(
+        core::Address startAddress,
+        core::Address stopAddress,
+        std::string_view pattern) const;
     [[nodiscard]] bool assertBytes(core::Address address, std::string_view pattern) const;
     void readMem(core::Address sourceAddress, core::Address destinationAddress, std::size_t size);
     [[nodiscard]] core::ProtectionChange fullAccess(core::Address address, std::size_t size);

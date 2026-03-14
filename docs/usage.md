@@ -44,7 +44,15 @@ Module-limited scan:
 auto hits = session->aobScanModule("game.exe", "48 8B ?? ?? ?? 89");
 ```
 
-Direct scanner access is also available if you need to pass an explicit `BytePattern` or address range.
+Region-limited scan:
+
+```cpp
+auto hits = session->aobScanRegion(moduleBase, moduleBase + moduleSize, "48 8B ?? ?? ?? 89");
+```
+
+`aobScanRegion(start, stop, pattern)` uses a half-open range: `start` is included and `stop` is exclusive.
+
+Direct scanner access is also available if you need to pass an explicit `BytePattern`.
 
 ## 4. Resolve Addresses And Pointer Chains
 

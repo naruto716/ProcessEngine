@@ -17,7 +17,7 @@ The integration test launches a child process, attaches to it through the real e
 It currently verifies:
 
 - read/write
-- AOB scanning
+- AOB scanning, including region-limited scans
 - symbol registration
 - allocation and deallocation
 - byte patch apply/restore

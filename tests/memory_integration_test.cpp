@@ -376,13 +376,19 @@ void runIntegration(const fs::path& targetPath) {
     const auto moduleHits = engine->aobScanModule(mainModule.name, hexengine::tests::kModulePatternWildcardText);
     expect(containsAddress(moduleHits, manifest.modulePatternAddress), "Module AOB scan did not find the known pattern");
 
-    const auto pageHits = engine->scanner().scan(
-        BytePattern::parse(hexengine::tests::kPagePatternWildcardText),
-        AddressRange{
-            .start = manifest.pageAddress,
-            .end = manifest.pageAddress + manifest.pageSize,
-        });
+    const auto pageHits = engine->aobScanRegion(
+        manifest.pageAddress,
+        manifest.pageAddress + manifest.pageSize,
+        hexengine::tests::kPagePatternWildcardText);
     expect(containsAddress(pageHits, manifest.pagePatternAddress), "Page-limited scan did not find the page fixture pattern");
+    expectThrows(
+        [&] {
+            (void)engine->aobScanRegion(
+                manifest.pageAddress + manifest.pageSize,
+                manifest.pageAddress,
+                hexengine::tests::kPagePatternWildcardText);
+        },
+        "AOB scan region should reject an invalid range");
 
     const auto pointerAddress = engine->resolvePointer(
         manifest.pointerRootStorageAddress,

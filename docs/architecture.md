@@ -130,6 +130,7 @@ Files:
 This is where reusable engine behavior starts:
 
 - scan memory
+- scan explicit address windows
 - manage symbols
 - resolve CE-style address expressions
 - resolve pointer chains
@@ -159,6 +160,14 @@ caller
           -> IProcessBackend::regions(...)
           -> IProcessBackend::tryRead(...)
           -> BytePattern::findAll(...)
+```
+
+Region-limited scan follows the same path, but starts with:
+
+```text
+caller
+  -> EngineSession::aobScanRegion(start, stop, pattern)
+      -> ProcessScanner::scan(..., AddressRange{start, stop})
 ```
 
 ### Resolve An Address Expression
