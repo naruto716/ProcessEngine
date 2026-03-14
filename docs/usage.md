@@ -1,6 +1,6 @@
 # Usage
 
-See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Pointers](pointers.md)
+See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Pointers](pointers.md) | [Patching](patching.md)
 
 This page shows the normal way to use `hexengine` from native application code.
 
@@ -116,6 +116,41 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
+## 8. Apply And Restore Patches
+
+Byte patch:
+
+```cpp
+const std::array<std::byte, 4> replacement{
+    std::byte{0x90},
+    std::byte{0x90},
+    std::byte{0x90},
+    std::byte{0x90},
+};
+
+const std::array<std::byte, 4> expected{
+    std::byte{0x89},
+    std::byte{0x54},
+    std::byte{0x24},
+    std::byte{0x10},
+};
+
+session->applyPatch("player.hp.patch", hookAddress, replacement, expected);
+```
+
+NOP patch:
+
+```cpp
+session->applyNopPatch("player.hp.nop", hookAddress, 6);
+```
+
+Restore:
+
+```cpp
+session->restorePatch("player.hp.patch");
+session->restorePatch("player.hp.nop");
+```
+
 ## Minimal Example
 
 ```cpp
@@ -157,7 +192,7 @@ int main() {
         std::byte{0x90},
         std::byte{0x90},
     };
-    session->process().write(hookAddress, patch);
+    session->applyPatch("demo.patch", hookAddress, patch);
 
     (void)healthAddress;
     return 0;

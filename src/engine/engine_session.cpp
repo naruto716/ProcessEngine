@@ -3,15 +3,24 @@
 #include <stdexcept>
 
 namespace hexengine::engine {
+namespace {
+
+backend::IProcessBackend& requireProcess(const std::unique_ptr<backend::IProcessBackend>& process) {
+    if (!process) {
+        throw std::invalid_argument("EngineSession requires a process backend");
+    }
+
+    return *process;
+}
+
+}  // namespace
 
 EngineSession::EngineSession(std::unique_ptr<backend::IProcessBackend> process)
     : process_(std::move(process)),
-      scanner_(*process_),
-      pointers_(*process_, symbols_),
-      allocations_(*process_, symbols_, allocationRecords_) {
-    if (!process_) {
-        throw std::invalid_argument("EngineSession requires a process backend");
-    }
+      scanner_(requireProcess(process_)),
+      pointers_(requireProcess(process_), symbols_),
+      allocations_(requireProcess(process_), symbols_, allocationRecords_),
+      patches_(requireProcess(process_), patchRecords_) {
 }
 
 backend::IProcessBackend& EngineSession::process() noexcept {
@@ -52,6 +61,14 @@ AllocationService& EngineSession::allocations() noexcept {
 
 const AllocationService& EngineSession::allocations() const noexcept {
     return allocations_;
+}
+
+PatchService& EngineSession::patches() noexcept {
+    return patches_;
+}
+
+const PatchService& EngineSession::patches() const noexcept {
+    return patches_;
 }
 
 SymbolRecord EngineSession::registerSymbol(
@@ -104,6 +121,30 @@ AllocationRecord EngineSession::allocate(const AllocationRequest& request) {
 
 bool EngineSession::deallocate(std::string_view name) {
     return allocations_.deallocate(name);
+}
+
+PatchRecord EngineSession::applyPatch(const PatchRequest& request) {
+    return patches_.apply(request);
+}
+
+PatchRecord EngineSession::applyPatch(
+    std::string_view name,
+    core::Address address,
+    std::span<const std::byte> replacement,
+    std::span<const std::byte> expected) {
+    return patches_.applyBytes(name, address, replacement, expected);
+}
+
+PatchRecord EngineSession::applyNopPatch(
+    std::string_view name,
+    core::Address address,
+    std::size_t size,
+    std::span<const std::byte> expected) {
+    return patches_.applyNop(name, address, size, expected);
+}
+
+bool EngineSession::restorePatch(std::string_view name) {
+    return patches_.restore(name);
 }
 
 std::vector<core::Address> EngineSession::aobScan(std::string_view pattern) const {

@@ -2,11 +2,13 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
 #include "hexengine/backend/process_backend.hpp"
 #include "hexengine/engine/allocation_service.hpp"
+#include "hexengine/engine/patch_service.hpp"
 #include "hexengine/engine/pointer_resolver.hpp"
 #include "hexengine/engine/process_scanner.hpp"
 #include "hexengine/engine/symbol_repository.hpp"
@@ -27,6 +29,8 @@ public:
     [[nodiscard]] const PointerResolver& pointers() const noexcept;
     [[nodiscard]] AllocationService& allocations() noexcept;
     [[nodiscard]] const AllocationService& allocations() const noexcept;
+    [[nodiscard]] PatchService& patches() noexcept;
+    [[nodiscard]] const PatchService& patches() const noexcept;
 
     [[nodiscard]] SymbolRecord registerSymbol(
         std::string_view name,
@@ -39,6 +43,18 @@ public:
 
     [[nodiscard]] AllocationRecord allocate(const AllocationRequest& request);
     [[nodiscard]] bool deallocate(std::string_view name);
+    [[nodiscard]] PatchRecord applyPatch(const PatchRequest& request);
+    [[nodiscard]] PatchRecord applyPatch(
+        std::string_view name,
+        core::Address address,
+        std::span<const std::byte> replacement,
+        std::span<const std::byte> expected = {});
+    [[nodiscard]] PatchRecord applyNopPatch(
+        std::string_view name,
+        core::Address address,
+        std::size_t size,
+        std::span<const std::byte> expected = {});
+    [[nodiscard]] bool restorePatch(std::string_view name);
 
     [[nodiscard]] std::vector<core::Address> aobScan(std::string_view pattern) const;
     [[nodiscard]] std::vector<core::Address> aobScanModule(std::string_view moduleName, std::string_view pattern) const;
@@ -69,6 +85,8 @@ private:
     PointerResolver pointers_;
     AllocationRepository allocationRecords_;
     AllocationService allocations_;
+    PatchRepository patchRecords_;
+    PatchService patches_;
 };
 
 }  // namespace hexengine::engine

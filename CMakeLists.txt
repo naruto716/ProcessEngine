@@ -15,6 +15,8 @@ add_library(hexengine_engine
     src/engine/allocation_service.cpp
     src/engine/engine_factory.cpp
     src/engine/engine_session.cpp
+    src/engine/patch_repository.cpp
+    src/engine/patch_service.cpp
     src/engine/pointer_resolver.cpp
     src/engine/process_scanner.cpp
     src/engine/symbol_repository.cpp

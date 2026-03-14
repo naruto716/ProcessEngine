@@ -51,6 +51,17 @@ void expect(bool condition, std::string_view message) {
     }
 }
 
+template <typename Callback>
+void expectThrows(Callback&& callback, std::string_view message) {
+    try {
+        callback();
+    } catch (const std::exception&) {
+        return;
+    }
+
+    fail(message);
+}
+
 [[nodiscard]] std::wstring quoteArgument(std::wstring_view value) {
     std::wstring result;
     result.push_back(L'"');
@@ -306,6 +317,60 @@ void runIntegration(const fs::path& targetPath) {
     const auto updatedBytes = process.read(manifest.writableBufferAddress, manifest.writableBufferSize);
     expect(equalsBytes(updatedBytes, hexengine::tests::kWritableUpdatedBytes), "Updated remote bytes did not round-trip");
 
+    const std::array<std::byte, 4> writablePatchExpected{
+        hexengine::tests::kWritableUpdatedBytes[4],
+        hexengine::tests::kWritableUpdatedBytes[5],
+        hexengine::tests::kWritableUpdatedBytes[6],
+        hexengine::tests::kWritableUpdatedBytes[7],
+    };
+    const std::array<std::byte, 4> writablePatchReplacement{
+        std::byte{0xAA},
+        std::byte{0xBB},
+        std::byte{0xCC},
+        std::byte{0xDD},
+    };
+
+    const auto bytePatch = engine->applyPatch(
+        "integration.byte.patch",
+        manifest.writableBufferAddress + 4,
+        writablePatchReplacement,
+        writablePatchExpected);
+    expect(bytePatch.address == manifest.writableBufferAddress + 4, "Byte patch recorded the wrong address");
+    expect(bytePatch.originalBytes
+        == std::vector<std::byte>(writablePatchExpected.begin(), writablePatchExpected.end()),
+        "Byte patch did not capture the original bytes");
+    expect(bytePatch.replacementBytes
+        == std::vector<std::byte>(writablePatchReplacement.begin(), writablePatchReplacement.end()),
+        "Byte patch did not capture the replacement bytes");
+
+    const auto patchedWritableBytes = process.read(manifest.writableBufferAddress + 4, writablePatchReplacement.size());
+    expect(equalsBytes(patchedWritableBytes, writablePatchReplacement), "Byte patch did not write the replacement bytes");
+
+    const auto activeBytePatch = engine->patches().find("integration.byte.patch");
+    expect(activeBytePatch.has_value(), "Byte patch should be listed as active");
+    expect(activeBytePatch->kind == PatchKind::Bytes, "Byte patch should be recorded as a byte patch");
+
+    expect(engine->restorePatch("integration.byte.patch"), "Byte patch restore failed");
+    const auto restoredWritableBytes = process.read(manifest.writableBufferAddress, manifest.writableBufferSize);
+    expect(equalsBytes(restoredWritableBytes, hexengine::tests::kWritableUpdatedBytes), "Byte patch did not restore the writable buffer");
+    expect(!engine->restorePatch("integration.byte.patch"), "Second byte patch restore should return false");
+
+    expectThrows(
+        [&] {
+            const std::array<std::byte, 4> wrongExpected{
+                std::byte{0x00},
+                std::byte{0x00},
+                std::byte{0x00},
+                std::byte{0x00},
+            };
+            (void)engine->applyPatch(
+                "integration.bad.patch",
+                manifest.writableBufferAddress + 4,
+                writablePatchReplacement,
+                wrongExpected);
+        },
+        "Patch expected-byte verification should fail");
+
     expect(engine->assertBytes(manifest.modulePatternAddress, hexengine::tests::kModulePatternText), "Module pattern assert failed");
 
     const auto moduleHits = engine->aobScanModule(mainModule.name, hexengine::tests::kModulePatternWildcardText);
@@ -389,6 +454,46 @@ void runIntegration(const fs::path& targetPath) {
     const auto localSymbol = engine->resolveSymbol("integration.local.alloc");
     expect(localSymbol.has_value(), "Allocation-backed symbol resolution failed");
     expect(localSymbol->address == localAllocation.address, "Allocation-backed symbol address mismatch");
+
+    const std::array<std::byte, 5> localPatchExpected{
+        hexengine::tests::kPagePatternBytes[0],
+        hexengine::tests::kPagePatternBytes[1],
+        hexengine::tests::kPagePatternBytes[2],
+        hexengine::tests::kPagePatternBytes[3],
+        hexengine::tests::kPagePatternBytes[4],
+    };
+    (void)process.protect(localAllocation.address, localAllocation.size, ProtectionFlags::Read);
+    const auto localReadOnlyRegion = process.query(localAllocation.address);
+    expect(localReadOnlyRegion.has_value(), "Read-only local region query failed");
+    expect(!localReadOnlyRegion->isWritable(), "Local allocation should be read-only before the NOP patch");
+
+    const auto nopPatch = engine->applyNopPatch(
+        "integration.nop.patch",
+        localAllocation.address,
+        localPatchExpected.size(),
+        localPatchExpected);
+    expect(nopPatch.kind == PatchKind::Nop, "NOP patch should be recorded as a NOP patch");
+
+    const std::array<std::byte, 5> expectedNops{
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+        std::byte{0x90},
+    };
+    const auto nopBytes = process.read(localAllocation.address, expectedNops.size());
+    expect(equalsBytes(nopBytes, expectedNops), "NOP patch did not fill the target range with 0x90");
+
+    const auto regionAfterNopPatch = process.query(localAllocation.address);
+    expect(regionAfterNopPatch.has_value(), "Region query after NOP patch failed");
+    expect(!regionAfterNopPatch->isWritable(), "NOP patch should restore the original protection after writing");
+
+    expect(engine->restorePatch("integration.nop.patch"), "NOP patch restore failed");
+    const auto restoredLocalBytes = process.read(localAllocation.address, localPatchExpected.size());
+    expect(equalsBytes(restoredLocalBytes, localPatchExpected), "NOP patch did not restore the original bytes");
+    const auto regionAfterNopRestore = process.query(localAllocation.address);
+    expect(regionAfterNopRestore.has_value(), "Region query after NOP restore failed");
+    expect(!regionAfterNopRestore->isWritable(), "NOP patch restore should keep the original protection");
 
     const auto protectionChange = engine->fullAccess(localAllocation.address, localAllocation.size);
     expect(protectionChange.current == kReadWriteExecute, "fullAccess did not request read/write/execute");

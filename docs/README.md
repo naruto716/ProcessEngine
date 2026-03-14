@@ -13,6 +13,9 @@ This folder is the documentation home for `hexengine`.
 - [Pointers](pointers.md)
   How multilevel pointer resolution works, including CE-style address strings.
 
+- [Patching](patching.md)
+  Named byte patches, NOP helpers, restore, and CE-style enable/disable semantics.
+
 ## Learn The Codebase
 
 - [Architecture](architecture.md)
@@ -35,5 +38,6 @@ The engine currently covers:
 - symbol registration
 - AOB scanning
 - multilevel pointer-chain resolution
+- named patch management
 
 The engine does not yet try to be a full Cheat Engine replacement. It is the runtime foundation that future higher-level trainer features can build on.

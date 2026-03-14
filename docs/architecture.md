@@ -1,6 +1,6 @@
 # Architecture
 
-See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Pointers](pointers.md) | [Backends](backends.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
 
 This page is the high-level map of `hexengine`.
 
@@ -33,6 +33,8 @@ caller
           -> engine::PointerResolver
           -> engine::AllocationRepository
           -> engine::AllocationService
+          -> engine::PatchRepository
+          -> engine::PatchService
 ```
 
 Relevant code:
@@ -119,6 +121,8 @@ Files:
 - [`../include/hexengine/engine/pointer_resolver.hpp`](../include/hexengine/engine/pointer_resolver.hpp)
 - [`../include/hexengine/engine/allocation_repository.hpp`](../include/hexengine/engine/allocation_repository.hpp)
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
+- [`../include/hexengine/engine/patch_repository.hpp`](../include/hexengine/engine/patch_repository.hpp)
+- [`../include/hexengine/engine/patch_service.hpp`](../include/hexengine/engine/patch_service.hpp)
 - [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
 
 This is where reusable engine behavior starts:
@@ -127,6 +131,7 @@ This is where reusable engine behavior starts:
 - manage symbols
 - resolve pointer chains
 - manage named allocations
+- manage named patches
 - expose a single session object to callers
 
 ## Main Runtime Flows
@@ -178,6 +183,31 @@ caller
           -> IProcessBackend::allocate(...)
           -> AllocationRepository::upsert(...)
           -> SymbolRepository::registerSymbol(...)
+```
+
+### Apply And Restore A Patch
+
+```text
+caller
+  -> EngineSession::applyPatch(...)
+      -> PatchService::apply(...)
+          -> IProcessBackend::read(...)
+          -> IProcessBackend::query(...)
+          -> IProcessBackend::protect(...)   // only if needed
+          -> IProcessBackend::write(...)
+          -> PatchRepository::upsert(...)
+```
+
+Restore:
+
+```text
+caller
+  -> EngineSession::restorePatch(name)
+      -> PatchService::restore(name)
+          -> IProcessBackend::query(...)
+          -> IProcessBackend::protect(...)   // only if needed
+          -> IProcessBackend::write(...)
+          -> PatchRepository::erase(...)
 ```
 
 ## What To Read Next

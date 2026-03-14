@@ -20,6 +20,8 @@ It currently verifies:
 - AOB scanning
 - symbol registration
 - allocation and deallocation
+- byte patch apply/restore
+- NOP patch apply/restore with temporary write access
 - protection changes
 - template-style pointer resolution
 - CE-style pointer-string resolution
