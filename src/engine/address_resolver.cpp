@@ -1,11 +1,11 @@
 #include "hexengine/engine/address_resolver.hpp"
 
-#include <algorithm>
 #include <charconv>
-#include <cctype>
 #include <limits>
 #include <stdexcept>
 #include <string>
+
+#include "name_validation.hpp"
 
 namespace hexengine::engine {
 namespace {
@@ -22,22 +22,6 @@ namespace {
         throw std::overflow_error("Address expression underflowed address range");
     }
     return value - delta;
-}
-
-[[nodiscard]] bool isHexDigit(char ch) noexcept {
-    return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
-}
-
-[[nodiscard]] bool looksLikeHexLiteral(std::string_view token) noexcept {
-    if (token.empty()) {
-        return false;
-    }
-
-    if (token.size() > 2 && token[0] == '0' && (token[1] == 'x' || token[1] == 'X')) {
-        return std::all_of(token.begin() + 2, token.end(), isHexDigit);
-    }
-
-    return std::all_of(token.begin(), token.end(), isHexDigit);
 }
 
 [[nodiscard]] core::Address parseHexLiteral(std::string_view token) {
@@ -135,7 +119,7 @@ private:
         }
 
         const auto digitsStart = position_;
-        while (position_ < text_.size() && isHexDigit(text_[position_])) {
+        while (position_ < text_.size() && detail::isHexDigit(text_[position_])) {
             ++position_;
         }
 
@@ -203,9 +187,9 @@ private:
     std::size_t position_ = 0;
 };
 
-AddressResolver::AddressResolver(const backend::IProcessBackend& process, const SymbolRepository& symbols)
+AddressResolver::AddressResolver(const backend::IProcessBackend& process, NameResolver nameResolver)
     : process_(process),
-      symbols_(symbols) {
+      nameResolver_(std::move(nameResolver)) {
 }
 
 core::Address AddressResolver::resolve(std::string_view expression) const {
@@ -224,12 +208,14 @@ core::Address AddressResolver::readPointer(core::Address address) const {
 }
 
 std::optional<core::Address> AddressResolver::tryResolveToken(std::string_view token) const {
-    if (looksLikeHexLiteral(token)) {
+    if (detail::looksLikeHexLiteralName(token)) {
         return parseHexLiteral(token);
     }
 
-    if (const auto symbol = symbols_.find(token)) {
-        return symbol->address;
+    if (nameResolver_) {
+        if (const auto value = nameResolver_(token)) {
+            return *value;
+        }
     }
 
     if (const auto module = process_.findModule(token)) {

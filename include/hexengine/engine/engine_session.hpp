@@ -3,7 +3,9 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "hexengine/backend/process_backend.hpp"
@@ -16,9 +18,12 @@
 
 namespace hexengine::engine {
 
+class ScriptContext;
+
 class EngineSession {
 public:
     explicit EngineSession(std::unique_ptr<backend::IProcessBackend> process);
+    ~EngineSession();
 
     [[nodiscard]] backend::IProcessBackend& process() noexcept;
     [[nodiscard]] const backend::IProcessBackend& process() const noexcept;
@@ -44,8 +49,12 @@ public:
     [[nodiscard]] bool unregisterSymbol(std::string_view name);
     [[nodiscard]] std::optional<SymbolRecord> resolveSymbol(std::string_view name) const;
 
-    [[nodiscard]] AllocationRecord allocate(const AllocationRequest& request);
+    [[nodiscard]] AllocationRecord globalAlloc(const AllocationRequest& request);
     [[nodiscard]] bool deallocate(std::string_view name);
+    [[nodiscard]] ScriptContext& createScriptContext(std::string_view contextId);
+    [[nodiscard]] ScriptContext* findScriptContext(std::string_view contextId) noexcept;
+    [[nodiscard]] const ScriptContext* findScriptContext(std::string_view contextId) const noexcept;
+    [[nodiscard]] bool destroyScriptContext(std::string_view contextId);
     [[nodiscard]] PatchRecord applyPatch(const PatchRequest& request);
     [[nodiscard]] PatchRecord applyPatch(
         std::string_view name,
@@ -88,6 +97,10 @@ public:
     }
 
 private:
+    friend class ScriptContext;
+
+    [[nodiscard]] std::optional<core::Address> tryResolveSessionName(std::string_view name) const;
+
     std::unique_ptr<backend::IProcessBackend> process_;
     ProcessScanner scanner_;
     SymbolRepository symbols_;
@@ -97,6 +110,7 @@ private:
     AllocationService allocations_;
     PatchRepository patchRecords_;
     PatchService patches_;
+    std::unordered_map<std::string, std::unique_ptr<ScriptContext>> scriptContexts_;
 };
 
 }  // namespace hexengine::engine

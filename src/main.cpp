@@ -10,17 +10,6 @@
 
 namespace {
 
-std::string scopeName(hexengine::engine::AllocationScope scope) {
-    switch (scope) {
-    case hexengine::engine::AllocationScope::Local:
-        return "local";
-    case hexengine::engine::AllocationScope::Global:
-        return "global";
-    }
-
-    return "unknown";
-}
-
 }  // namespace
 
 int main() {
@@ -32,11 +21,10 @@ int main() {
         auto engine = factory.open(::GetCurrentProcessId());
         const auto mainModule = engine->process().mainModule();
 
-        const auto allocation = engine->allocate(AllocationRequest{
+        const auto allocation = engine->globalAlloc(AllocationRequest{
             .name = "example_page",
             .size = 0x1000,
             .protection = ProtectionFlags::Read | ProtectionFlags::Write,
-            .scope = AllocationScope::Global,
         });
 
         constexpr std::array<std::byte, 8> kPayload{
@@ -66,7 +54,7 @@ int main() {
         const auto symbol = engine->resolveSymbol("example_page");
 
         std::cout << "Main module: " << mainModule.name << " @ 0x" << std::hex << mainModule.base << std::dec << '\n';
-        std::cout << "Allocation '" << allocation.name << "' (" << scopeName(allocation.scope) << ") @ 0x"
+        std::cout << "Allocation '" << allocation.name << "' @ 0x"
                   << std::hex << allocation.address << std::dec << ", size=" << allocation.size << '\n';
         std::cout << "Registered symbol '" << registeredSymbol.name << "' -> 0x" << std::hex
                   << registeredSymbol.address << std::dec << '\n';

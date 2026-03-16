@@ -44,6 +44,14 @@ public:
         }
     }
 
+    [[nodiscard]] bool isAllocated(core::Address address) const {
+        return allocations_.find(address) != allocations_.end();
+    }
+
+    [[nodiscard]] std::size_t allocationCount() const noexcept {
+        return allocations_.size();
+    }
+
     [[nodiscard]] core::ProcessId pid() const noexcept override {
         return 1;
     }
@@ -121,14 +129,29 @@ public:
     }
 
     [[nodiscard]] core::AllocationBlock allocate(
-        std::size_t,
-        core::ProtectionFlags,
+        std::size_t size,
+        core::ProtectionFlags protection,
         std::optional<core::Address>) override {
-        throw std::runtime_error("allocate not implemented in FakeProcessBackend");
+        if (size == 0) {
+            throw std::invalid_argument("Allocation size must be greater than zero");
+        }
+
+        const auto address = nextAllocationAddress_;
+        nextAllocationAddress_ += size + 0x100;
+
+        auto block = core::AllocationBlock{
+            .address = address,
+            .size = size,
+            .protection = protection,
+        };
+        allocations_.emplace(address, block);
+        return block;
     }
 
-    void free(core::Address) override {
-        throw std::runtime_error("free not implemented in FakeProcessBackend");
+    void free(core::Address address) override {
+        if (allocations_.erase(address) == 0) {
+            throw std::runtime_error("free called for an unknown fake allocation");
+        }
     }
 
     void executeCode(core::Address) override {
@@ -139,6 +162,8 @@ private:
     std::size_t pointerSize_ = 0;
     std::vector<core::ModuleInfo> modules_;
     std::unordered_map<core::Address, std::byte> memory_;
+    std::unordered_map<core::Address, core::AllocationBlock> allocations_;
+    core::Address nextAllocationAddress_ = 0x0100'0000;
 };
 
 }  // namespace hexengine::tests::support

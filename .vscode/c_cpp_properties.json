@@ -3,6 +3,8 @@
   "configurations": [
     {
       "name": "MSVC x64",
+      "configurationProvider": "ms-vscode.cmake-tools",
+      "mergeConfigurations": true,
       "compilerPath": "D:/VIsualStudio/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
       "intelliSenseMode": "windows-msvc-x64",
       "cppStandard": "c++20",
@@ -12,8 +14,19 @@
         "NOMINMAX"
       ],
       "includePath": [
-        "${workspaceFolder}/include"
-      ]
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/tests",
+        "${workspaceFolder}/benchmarks"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}/include",
+          "${workspaceFolder}/src",
+          "${workspaceFolder}/tests",
+          "${workspaceFolder}/benchmarks"
+        ]
+      }
     }
   ]
 }

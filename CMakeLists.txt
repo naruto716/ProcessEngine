@@ -20,6 +20,7 @@ add_library(hexengine_engine
     src/engine/patch_service.cpp
     src/engine/pointer_resolver.cpp
     src/engine/process_scanner.cpp
+    src/engine/script_context.cpp
     src/engine/symbol_repository.cpp
 )
 
@@ -70,6 +71,14 @@ target_compile_features(ce_address_resolver_test PRIVATE cxx_std_20)
 target_include_directories(ce_address_resolver_test PRIVATE include tests)
 target_link_libraries(ce_address_resolver_test PRIVATE hexengine_engine)
 
+add_executable(ce_script_context_test
+    tests/script_context_test.cpp
+)
+
+target_compile_features(ce_script_context_test PRIVATE cxx_std_20)
+target_include_directories(ce_script_context_test PRIVATE include tests)
+target_link_libraries(ce_script_context_test PRIVATE hexengine_engine)
+
 add_executable(ce_scan_benchmark_target
     benchmarks/scan_benchmark_target.cpp
 )
@@ -99,4 +108,9 @@ add_test(
 add_test(
     NAME ce_address_resolver
     COMMAND $<TARGET_FILE:ce_address_resolver_test>
+)
+
+add_test(
+    NAME ce_script_context
+    COMMAND $<TARGET_FILE:ce_script_context_test>
 )

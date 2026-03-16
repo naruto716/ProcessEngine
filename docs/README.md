@@ -35,13 +35,17 @@ The engine currently covers:
 - module and region queries
 - read/write/protect
 - alloc/free
+- CE-style script contexts with local alloc bindings
 - symbol registration
 - AOB scanning
 - region-limited AOB scanning
 - CE-style address expression resolution
 - multilevel pointer-chain resolution
+- script-scoped labels through `ScriptContext`
 - CE-style `readMem` byte copying
 - target-code execution through `executeCode`
 - named patch management
+
+The script label system is the engine-side seam for future AsmJit and Lua integration. This repo does not yet embed either runtime.
 
 The engine does not yet try to be a full Cheat Engine replacement. It is the runtime foundation that future higher-level trainer features can build on.

@@ -28,6 +28,7 @@ caller
       -> engine::EngineSession
           -> backend::IProcessBackend
               -> backends::win32::Win32ProcessBackend
+          -> engine::ScriptContext (optional, per CE script)
           -> engine::ProcessScanner
           -> engine::SymbolRepository
           -> engine::AddressResolver
@@ -125,6 +126,7 @@ Files:
 - [`../include/hexengine/engine/pointer_resolver.hpp`](../include/hexengine/engine/pointer_resolver.hpp)
 - [`../include/hexengine/engine/allocation_repository.hpp`](../include/hexengine/engine/allocation_repository.hpp)
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
+- [`../include/hexengine/engine/script_context.hpp`](../include/hexengine/engine/script_context.hpp)
 - [`../include/hexengine/engine/patch_repository.hpp`](../include/hexengine/engine/patch_repository.hpp)
 - [`../include/hexengine/engine/patch_service.hpp`](../include/hexengine/engine/patch_service.hpp)
 - [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
@@ -138,7 +140,8 @@ This is where reusable engine behavior starts:
 - resolve pointer chains
 - copy bytes with CE-style `readMem`
 - execute target code through the backend
-- manage named allocations
+- manage session-global allocations
+- manage script-local allocations and labels
 - manage named patches
 - expose a single session object to callers
 
@@ -182,6 +185,16 @@ caller
           -> symbol lookup / module lookup / pointer dereference
 ```
 
+With a script context:
+
+```text
+caller
+  -> ScriptContext::resolveAddress("newmem")
+      -> local script names
+      -> session-global allocs
+      -> registered symbols / modules / literals
+```
+
 ### Resolve A Pointer Chain
 
 ```text
@@ -203,12 +216,22 @@ caller
 
 ```text
 caller
-  -> EngineSession::allocate(request)
+  -> EngineSession::globalAlloc(request)
       -> AllocationService::allocate(request)
           -> IProcessBackend::allocate(...)
           -> AllocationRepository::upsert(...)
-          -> SymbolRepository::registerSymbol(...)
 ```
+
+Script-local allocation uses the script context instead:
+
+```text
+caller
+  -> ScriptContext::alloc(request)
+      -> IProcessBackend::allocate(...)
+      -> local AllocationRepository::upsert(...)
+```
+
+Local alloc names stay inside the script context until explicitly published.
 
 ### Apply And Restore A Patch
 
@@ -253,6 +276,15 @@ caller
   -> EngineSession::executeCode(entry)
       -> IProcessBackend::executeCode(entry)
           -> backend-specific execution path
+```
+
+### Script Labels
+
+```text
+caller
+  -> ScriptContext::declareLabel / bindLabel
+      -> labels shadow alloc and global names within the script context
+      -> registerSymbol(labelName) publishes a label globally
 ```
 
 ## What To Read Next

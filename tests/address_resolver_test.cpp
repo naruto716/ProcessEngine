@@ -49,7 +49,12 @@ void expectThrows(Callback&& callback, std::string_view messagePart) {
 }
 
 [[nodiscard]] AddressResolver makeResolver(FakeProcessBackend& process, SymbolRepository& symbols) {
-    return AddressResolver(process, symbols);
+    return AddressResolver(process, [&symbols](std::string_view name) -> std::optional<Address> {
+        if (const auto symbol = symbols.find(name)) {
+            return symbol->address;
+        }
+        return std::nullopt;
+    });
 }
 
 void registerSymbol(SymbolRepository& symbols, std::string_view name, Address address) {

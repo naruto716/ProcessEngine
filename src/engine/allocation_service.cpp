@@ -3,6 +3,8 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "name_validation.hpp"
+
 namespace hexengine::engine {
 namespace {
 
@@ -16,23 +18,19 @@ namespace {
 
 AllocationService::AllocationService(
     backend::IProcessBackend& process,
-    SymbolRepository& symbols,
     AllocationRepository& records)
     : process_(process),
-      symbols_(symbols),
       records_(records) {
 }
 
 AllocationRecord AllocationService::allocate(const AllocationRequest& request) {
-    if (request.name.empty()) {
-        throw std::invalid_argument("Allocation name must not be empty");
-    }
+    detail::validateUserDefinedName(request.name, "Global allocation");
     if (request.size == 0) {
         throw std::invalid_argument("Allocation size must be greater than zero");
     }
 
     if (const auto existing = records_.find(request.name)) {
-        if (request.scope == AllocationScope::Global) {
+        if (existing->scope == AllocationScope::Global) {
             if (existing->size < request.size) {
                 throw std::runtime_error(buildError("Existing global allocation is smaller than requested", request.name));
             }
@@ -48,18 +46,10 @@ AllocationRecord AllocationService::allocate(const AllocationRequest& request) {
         .address = block.address,
         .size = block.size,
         .protection = block.protection,
-        .scope = request.scope,
+        .scope = AllocationScope::Global,
     };
 
     records_.upsert(record);
-    symbols_.registerSymbol(SymbolRecord{
-        .name = record.name,
-        .address = record.address,
-        .size = record.size,
-        .kind = SymbolKind::Allocation,
-        .persistent = record.scope == AllocationScope::Global,
-    });
-
     return record;
 }
 
@@ -70,7 +60,6 @@ bool AllocationService::deallocate(std::string_view name) {
     }
 
     process_.free(record->address);
-    (void)symbols_.unregisterSymbol(record->name);
     (void)records_.erase(record->name);
     return true;
 }

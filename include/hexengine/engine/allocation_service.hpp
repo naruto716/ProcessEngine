@@ -6,16 +6,12 @@
 
 #include "hexengine/backend/process_backend.hpp"
 #include "hexengine/engine/allocation_repository.hpp"
-#include "hexengine/engine/symbol_repository.hpp"
 
 namespace hexengine::engine {
 
 class AllocationService {
 public:
-    AllocationService(
-        backend::IProcessBackend& process,
-        SymbolRepository& symbols,
-        AllocationRepository& records);
+    AllocationService(backend::IProcessBackend& process, AllocationRepository& records);
 
     [[nodiscard]] AllocationRecord allocate(const AllocationRequest& request);
     [[nodiscard]] bool deallocate(std::string_view name);
@@ -24,7 +20,6 @@ public:
 
 private:
     backend::IProcessBackend& process_;
-    SymbolRepository& symbols_;
     AllocationRepository& records_;
 };
 

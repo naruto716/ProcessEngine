@@ -22,7 +22,6 @@ struct AllocationRequest {
     std::string name;
     std::size_t size = 0;
     core::ProtectionFlags protection = core::kReadWriteExecute;
-    AllocationScope scope = AllocationScope::Local;
     std::optional<core::Address> nearAddress = std::nullopt;
 };
 

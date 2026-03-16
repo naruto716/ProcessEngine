@@ -114,10 +114,11 @@ The project now builds the `hexengine_engine` library. The memory subsystem is s
 - `hexengine::backend::IProcessBackend`: transport interface for reading, writing, querying, protecting, and allocating process memory
 - `hexengine::backends::win32::Win32ProcessBackend`: the current concrete backend for Win32 user-mode access
 - `hexengine::engine::ProcessScanner`: region-aware AOB scanning built on top of a backend
-- `hexengine::engine::SymbolRepository`: case-insensitive symbol storage
+- `hexengine::engine::SymbolRepository`: case-insensitive storage for explicitly registered symbols
 - `hexengine::engine::PointerResolver`: multilevel pointer-chain resolution, including CE-style string wrappers such as `[[game.exe+0x123]+0x18]+0x30`
 - `hexengine::engine::AllocationRepository`: allocation state storage
-- `hexengine::engine::AllocationService`: CE-style allocation behavior on top of a backend and symbol store
+- `hexengine::engine::AllocationService`: session-global / `globalAlloc`-style allocation behavior on top of a backend
+- `hexengine::engine::ScriptContext`: persistent CE-style local script scope for local alloc names, labels, and symbols shared across related scripts such as enable/disable
 - `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services
 - `hexengine::engine::IEngineFactory`: abstract factory seam for engine session construction
 - `hexengine::engine::Win32EngineFactory`: the current concrete factory for Win32-backed `EngineSession` instances

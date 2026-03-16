@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "hexengine/engine/script_context.hpp"
+#include "name_validation.hpp"
 #include "write_with_temporary_protection.hpp"
 
 namespace hexengine::engine {
@@ -20,11 +22,15 @@ backend::IProcessBackend& requireProcess(const std::unique_ptr<backend::IProcess
 EngineSession::EngineSession(std::unique_ptr<backend::IProcessBackend> process)
     : process_(std::move(process)),
       scanner_(requireProcess(process_)),
-      addresses_(requireProcess(process_), symbols_),
+      addresses_(requireProcess(process_), [this](std::string_view name) {
+          return tryResolveSessionName(name);
+      }),
       pointers_(requireProcess(process_), addresses_),
-      allocations_(requireProcess(process_), symbols_, allocationRecords_),
+      allocations_(requireProcess(process_), allocationRecords_),
       patches_(requireProcess(process_), patchRecords_) {
 }
+
+EngineSession::~EngineSession() = default;
 
 backend::IProcessBackend& EngineSession::process() noexcept {
     return *process_;
@@ -88,8 +94,9 @@ SymbolRecord EngineSession::registerSymbol(
     std::size_t size,
     SymbolKind kind,
     bool persistent) {
-    if (name.empty()) {
-        throw std::invalid_argument("Symbol name must not be empty");
+    detail::validateUserDefinedName(name, "Registered symbol");
+    if (const auto allocation = allocationRecords_.find(name); allocation && allocation->scope == AllocationScope::Global) {
+        throw std::runtime_error("Registered symbol collides with an existing global allocation: " + std::string(name));
     }
 
     SymbolRecord symbol{
@@ -126,12 +133,61 @@ std::optional<SymbolRecord> EngineSession::resolveSymbol(std::string_view name) 
     return std::nullopt;
 }
 
-AllocationRecord EngineSession::allocate(const AllocationRequest& request) {
-    return allocations_.allocate(request);
+AllocationRecord EngineSession::globalAlloc(const AllocationRequest& request) {
+    if (const auto existing = allocationRecords_.find(request.name); !existing && symbols_.find(request.name)) {
+        throw std::runtime_error("Global allocation collides with a registered symbol: " + request.name);
+    }
+
+    const auto record = allocations_.allocate(request);
+    symbols_.registerSymbol(SymbolRecord{
+        .name = record.name,
+        .address = record.address,
+        .size = record.size,
+        .kind = SymbolKind::Allocation,
+        .persistent = true,
+    });
+    return record;
 }
 
 bool EngineSession::deallocate(std::string_view name) {
-    return allocations_.deallocate(name);
+    if (!allocationRecords_.find(name)) {
+        return false;
+    }
+
+    const auto removed = allocations_.deallocate(name);
+    if (removed) {
+        (void)symbols_.unregisterSymbol(name);
+    }
+
+    return removed;
+}
+
+ScriptContext& EngineSession::createScriptContext(std::string_view contextId) {
+    detail::validateUserDefinedName(contextId, "Script context");
+
+    const auto key = std::string(contextId);
+    if (const auto iterator = scriptContexts_.find(key); iterator != scriptContexts_.end()) {
+        return *iterator->second;
+    }
+
+    auto context = std::make_unique<ScriptContext>(*this, key);
+    auto* result = context.get();
+    scriptContexts_.emplace(key, std::move(context));
+    return *result;
+}
+
+ScriptContext* EngineSession::findScriptContext(std::string_view contextId) noexcept {
+    const auto iterator = scriptContexts_.find(std::string(contextId));
+    return iterator == scriptContexts_.end() ? nullptr : iterator->second.get();
+}
+
+const ScriptContext* EngineSession::findScriptContext(std::string_view contextId) const noexcept {
+    const auto iterator = scriptContexts_.find(std::string(contextId));
+    return iterator == scriptContexts_.end() ? nullptr : iterator->second.get();
+}
+
+bool EngineSession::destroyScriptContext(std::string_view contextId) {
+    return scriptContexts_.erase(std::string(contextId)) > 0;
 }
 
 PatchRecord EngineSession::applyPatch(const PatchRequest& request) {
@@ -211,6 +267,14 @@ core::Address EngineSession::resolveAddress(std::string_view expression) const {
 
 core::Address EngineSession::resolvePointer(core::Address base, std::span<const std::ptrdiff_t> offsets) const {
     return pointers_.resolve(base, offsets);
+}
+
+std::optional<core::Address> EngineSession::tryResolveSessionName(std::string_view name) const {
+    if (const auto symbol = symbols_.find(name)) {
+        return symbol->address;
+    }
+
+    return std::nullopt;
 }
 
 }  // namespace hexengine::engine

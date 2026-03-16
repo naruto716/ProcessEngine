@@ -63,6 +63,20 @@ This is the focused parser and expression-resolution test for:
 
 It uses a fake backend so these cases can be tested thoroughly without spawning a real process.
 
+## Script Context Test
+
+File:
+
+- [`../tests/script_context_test.cpp`](../tests/script_context_test.cpp)
+
+This is the focused scope and resolver-layering test for:
+
+- session-global alloc semantics and reuse
+- script-local alloc shadowing
+- explicit publication with `registerSymbol(name)`
+- label precedence and scoping
+- script-context teardown without implicit cleanup
+
 ## Scan Benchmark
 
 Files:

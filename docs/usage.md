@@ -99,16 +99,15 @@ Unregister:
 session->unregisterSymbol("player_base");
 ```
 
-## 6. Allocate Memory
+## 6. Global Alloc From The Session
 
 ```cpp
 using namespace hexengine;
 
-const auto block = session->allocate(engine::AllocationRequest{
-    .name = "myCodecave",
+const auto block = session->globalAlloc(engine::AllocationRequest{
+    .name = "sharedmem",
     .size = 0x1000,
     .protection = core::kReadWriteExecute,
-    .scope = engine::AllocationScope::Local,
     .nearAddress = hookAddress,
 });
 ```
@@ -116,10 +115,49 @@ const auto block = session->allocate(engine::AllocationRequest{
 Release it later:
 
 ```cpp
-session->deallocate("myCodecave");
+session->deallocate("sharedmem");
 ```
 
-## 7. Change Protection
+Use `globalAlloc(...)` for CE-style `globalalloc` semantics.
+`globalAlloc(...)` publishes the allocation name as a session-global symbol.
+
+## 7. Script-Local Allocations And Labels
+
+Use a `ScriptContext` when you need CE-style local names shared by related scripts such as enable/disable:
+
+```cpp
+auto& script = session->createScriptContext("feature.infinite_health");
+
+const auto local = script.alloc(hexengine::engine::AllocationRequest{
+    .name = "newmem",
+    .size = 0x1000,
+    .protection = hexengine::core::kReadWriteExecute,
+    .nearAddress = hookAddress,
+});
+
+auto localAddress = script.resolveAddress("newmem");
+script.registerSymbol("newmem");
+```
+
+Important behavior:
+
+- script-local alloc names resolve only inside that `ScriptContext`
+- `registerSymbol(name)` explicitly publishes a local name globally
+- deallocating a local alloc does not unregister published global symbols; `hexengine` warns, but stays CE-compatible
+- related scripts should reuse the same script-context id if they need shared local names
+
+Labels can be declared and bound directly on the script context:
+
+```cpp
+script.declareLabel("returnhere");
+script.bindLabel("returnhere", hookAddress + 5);
+auto returnAddress = script.resolveAddress("returnhere");
+script.registerSymbol("returnhere");  // publishes the label globally
+```
+
+Labels are script-scoped — they persist as long as the `ScriptContext` exists, just like local allocations. Labels shadow alloc names and global names when resolving addresses within the script context.
+
+## 8. Change Protection
 
 ```cpp
 session->fullAccess(address, size);
@@ -131,7 +169,7 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
-## 8. Copy Bytes With `readMem`
+## 9. Copy Bytes With `readMem`
 
 `readMem` is the CE-style byte-copy helper:
 
@@ -146,7 +184,7 @@ In `hexengine`, this means:
 - temporarily make the destination writable if needed
 - restore the previous protection after the write
 
-## 9. Execute Remote Code
+## 10. Execute Remote Code
 
 `executeCode` is the engine-level "run this entrypoint inside the target process" operation:
 
@@ -161,7 +199,7 @@ At the common engine interface level, this only means:
 
 The backend decides how to do that. In the Win32 backend, this is implemented with `CreateRemoteThread`.
 
-## 10. Apply And Restore Patches
+## 11. Apply And Restore Patches
 
 Byte patch:
 
@@ -219,11 +257,11 @@ int main() {
     const auto hookAddress = hits.front();
     const auto healthAddress = session->resolvePointer(hookAddress, 0x18, 0x30);
 
-    const auto cave = session->allocate(engine::AllocationRequest{
-        .name = "myCodecave",
+    auto& script = session->createScriptContext("demo.feature");
+    const auto cave = script.alloc(engine::AllocationRequest{
+        .name = "newmem",
         .size = 0x1000,
         .protection = core::kReadWriteExecute,
-        .scope = engine::AllocationScope::Local,
         .nearAddress = hookAddress,
     });
 

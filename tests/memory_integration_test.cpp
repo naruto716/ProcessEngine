@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "hexengine/engine/win32_engine_factory.hpp"
+#include "hexengine/engine/script_context.hpp"
 #include "memory_test_fixture.hpp"
 
 namespace fs = std::filesystem;
@@ -516,11 +517,49 @@ void runIntegration(const fs::path& targetPath) {
     const auto pointerValueByExpression = process.readValue<std::uint32_t>(engine->resolveAddress(pointerExpression.str()));
     expect(pointerValueByExpression == hexengine::tests::kPointerValue, "Pointer expression read returned the wrong value");
 
-    const auto localAllocation = engine->allocate(AllocationRequest{
+    auto& script = engine->createScriptContext("integration.feature");
+    auto& sameScript = engine->createScriptContext("integration.feature");
+    expect(&script == &sameScript, "Script contexts with the same id should be reused");
+
+    const auto scriptLocal = script.alloc(AllocationRequest{
+        .name = "newmem",
+        .size = 0x1000,
+        .protection = ProtectionFlags::Read | ProtectionFlags::Write,
+        .nearAddress = manifest.modulePatternAddress,
+    });
+    expect(script.resolveAddress("newmem") == scriptLocal.address, "Script-local alloc did not resolve inside its context");
+    expectThrows(
+        [&] { (void)engine->resolveAddress("newmem"); },
+        "Script-local alloc name should not resolve globally before publication");
+
+    const auto publishedLocal = script.registerSymbol("newmem");
+    expect(publishedLocal.address == scriptLocal.address, "registerSymbol(localName) published the wrong address");
+    expect(engine->resolveAddress("newmem") == scriptLocal.address, "Published local alloc did not resolve globally");
+    expect(script.dealloc("newmem"), "Script-local dealloc failed");
+    const auto publishedAfterLocalDealloc = engine->resolveSymbol("newmem");
+    expect(publishedAfterLocalDealloc.has_value(), "Explicitly published local symbol should survive local dealloc");
+    expect(publishedAfterLocalDealloc->address == scriptLocal.address, "Published local symbol should keep the original address");
+    expect(engine->unregisterSymbol("newmem"), "Published local symbol unregister failed");
+    expect(engine->destroyScriptContext("integration.feature"), "Destroying an existing script context should succeed");
+    expect(engine->findScriptContext("integration.feature") == nullptr, "Destroyed script context should not be discoverable");
+
+    auto& leakingScript = engine->createScriptContext("integration.leak");
+    const auto leakedLocal = leakingScript.alloc(AllocationRequest{
+        .name = "tempalloc",
+        .size = 0x400,
+        .protection = ProtectionFlags::Read | ProtectionFlags::Write,
+    });
+    expect(engine->destroyScriptContext("integration.leak"), "Destroying a script context with live locals should still succeed");
+    const auto leakedRegion = process.query(leakedLocal.address);
+    expect(leakedRegion.has_value(), "Destroying a script context should not implicitly free local allocations");
+    process.free(leakedLocal.address);
+
+    auto& runtimeScript = engine->createScriptContext("integration.runtime");
+
+    const auto localAllocation = runtimeScript.alloc(AllocationRequest{
         .name = "integration.local.alloc",
         .size = 0x1000,
         .protection = ProtectionFlags::Read | ProtectionFlags::Write,
-        .scope = AllocationScope::Local,
         .nearAddress = manifest.modulePatternAddress,
     });
     expect(localAllocation.address != 0, "Local allocation returned a null address");
@@ -531,9 +570,9 @@ void runIntegration(const fs::path& targetPath) {
         engine->assertBytes(localAllocation.address, hexengine::tests::kPagePatternText),
         "Allocated page did not contain the expected bytes");
 
-    const auto localSymbol = engine->resolveSymbol("integration.local.alloc");
-    expect(localSymbol.has_value(), "Allocation-backed symbol resolution failed");
-    expect(localSymbol->address == localAllocation.address, "Allocation-backed symbol address mismatch");
+    const auto localSymbolInRepo = engine->symbols().find("integration.local.alloc");
+    expect(!localSymbolInRepo.has_value(), "Local allocation should not be stored in the global symbol repository");
+    expect(!engine->resolveSymbol("integration.local.alloc").has_value(), "Local allocation should not resolve as a global symbol");
 
     const auto readMemDestination = localAllocation.address + 0x100;
     process.write(readMemDestination, std::array<std::byte, hexengine::tests::kModulePatternBytes.size()>{});
@@ -593,37 +632,41 @@ void runIntegration(const fs::path& targetPath) {
     expect(localRegion->isReadable(), "Allocated region should be readable");
     expect(localRegion->isWritable(), "Allocated region should be writable after fullAccess");
     expect(localRegion->isExecutable(), "Allocated region should be executable after fullAccess");
-    expect(engine->deallocate("integration.local.alloc"), "Local allocation deallocate failed");
-    expect(!engine->deallocate("integration.local.alloc"), "Second local allocation deallocate should return false");
+    expect(runtimeScript.dealloc("integration.local.alloc"), "Local allocation deallocate failed");
+    expect(!runtimeScript.dealloc("integration.local.alloc"), "Second local allocation deallocate should return false");
 
     process.writeValue<std::byte>(manifest.writableBufferAddress, std::byte{0x00});
-    const auto executeAllocation = engine->allocate(AllocationRequest{
+    const auto executeAllocation = runtimeScript.alloc(AllocationRequest{
         .name = "integration.exec.alloc",
         .size = 0x1000,
         .protection = kReadWriteExecute,
-        .scope = AllocationScope::Local,
     });
     const auto executeStub = makeWriteByteStub(manifest.writableBufferAddress, std::byte{0x5A});
     process.write(executeAllocation.address, executeStub);
     engine->executeCode(executeAllocation.address);
     waitForByteValue(process, manifest.writableBufferAddress, std::byte{0x5A}, 2s);
     std::this_thread::sleep_for(25ms);
-    expect(engine->deallocate("integration.exec.alloc"), "Execute-code allocation deallocate failed");
+    expect(runtimeScript.dealloc("integration.exec.alloc"), "Execute-code allocation deallocate failed");
 
-    const auto globalFirst = engine->allocate(AllocationRequest{
+    const auto globalFirst = engine->globalAlloc(AllocationRequest{
         .name = "integration.global.alloc",
         .size = 0x1000,
         .protection = ProtectionFlags::Read | ProtectionFlags::Write,
-        .scope = AllocationScope::Global,
     });
-    const auto globalSecond = engine->allocate(AllocationRequest{
+    const auto globalSecond = engine->globalAlloc(AllocationRequest{
         .name = "integration.global.alloc",
         .size = 0x800,
         .protection = ProtectionFlags::Read | ProtectionFlags::Write,
-        .scope = AllocationScope::Global,
     });
     expect(globalFirst.address == globalSecond.address, "Global allocation reuse did not return the original block");
+    const auto globalSymbolInRepo = engine->symbols().find("integration.global.alloc");
+    expect(globalSymbolInRepo.has_value(), "Global allocation should be stored in the symbol repository");
+    expect(globalSymbolInRepo->address == globalFirst.address, "Global allocation repository symbol address mismatch");
+    const auto globalSymbol = engine->resolveSymbol("integration.global.alloc");
+    expect(globalSymbol.has_value(), "Global allocation should resolve as a global symbol");
+    expect(globalSymbol->address == globalFirst.address, "Global allocation symbol address mismatch");
     expect(engine->deallocate("integration.global.alloc"), "Global allocation deallocate failed");
+    expect(!engine->symbols().find("integration.global.alloc").has_value(), "Global allocation deallocate should unregister the allocation symbol");
 }
 
 }  // namespace
