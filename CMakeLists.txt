@@ -8,6 +8,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
 
+include(FetchContent)
+FetchContent_Declare(
+    asmjit
+    GIT_REPOSITORY https://github.com/asmjit/asmjit.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(asmjit)
+
 add_library(hexengine_engine
     src/backends/win32/win32_process_backend.cpp
     src/engine/address_resolver.cpp
@@ -20,12 +30,14 @@ add_library(hexengine_engine
     src/engine/patch_service.cpp
     src/engine/pointer_resolver.cpp
     src/engine/process_scanner.cpp
+    src/engine/remote_assembler.cpp
     src/engine/script_context.cpp
     src/engine/symbol_repository.cpp
 )
 
 target_compile_features(hexengine_engine PUBLIC cxx_std_20)
 target_include_directories(hexengine_engine PUBLIC include)
+target_link_libraries(hexengine_engine PUBLIC asmjit::asmjit)
 
 if (WIN32)
     target_compile_definitions(hexengine_engine PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -113,4 +125,17 @@ add_test(
 add_test(
     NAME ce_script_context
     COMMAND $<TARGET_FILE:ce_script_context_test>
+)
+
+add_executable(ce_remote_assembler_test
+    tests/remote_assembler_test.cpp
+)
+
+target_compile_features(ce_remote_assembler_test PRIVATE cxx_std_20)
+target_include_directories(ce_remote_assembler_test PRIVATE include tests)
+target_link_libraries(ce_remote_assembler_test PRIVATE hexengine_engine)
+
+add_test(
+    NAME ce_remote_assembler
+    COMMAND ce_remote_assembler_test
 )

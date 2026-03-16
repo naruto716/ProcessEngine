@@ -141,7 +141,7 @@ void runTests() {
     expect(publishedAfterLocalDealloc->address == localPublished.address, "Published symbol should keep the original address");
     expect(enableContext.resolveAddress("newmem") == localPublished.address, "After local dealloc the script context should fall back to the published symbol");
 
-    // Label tests — labels are now script-scoped, not pass-scoped
+    // Label tests - labels are now script-scoped, not pass-scoped
     expect(!enableContext.hasLabel("returnhere"), "Script context should not contain undeclared labels");
     enableContext.declareLabel("returnhere");
     expect(enableContext.hasLabel("returnhere"), "Declared label should be discoverable");
@@ -154,11 +154,9 @@ void runTests() {
     enableContext.bindLabel("sharedmem", 0x6000);
     expect(enableContext.resolveAddress("sharedmem") == 0x6000, "Labels should shadow alloc and global names");
 
-    // Labels persist with the script context (unlike old CodegenContext which was pass-scoped)
     expect(enableContext.hasLabel("returnhere"), "Labels should persist with the script context");
     expect(enableContext.resolveAddress("returnhere") == 0x5000, "Labels should still resolve after continued use");
 
-    // registerSymbol should find and publish a bound label
     const auto publishedLabel = enableContext.registerSymbol("returnhere");
     expect(publishedLabel.address == 0x5000, "registerSymbol(labelName) should publish the label's bound address");
     expect(session.resolveAddress("returnhere") == 0x5000, "Published label should resolve session-wide");
