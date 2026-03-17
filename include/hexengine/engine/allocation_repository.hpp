@@ -31,6 +31,8 @@ struct AllocationRecord {
     std::size_t size = 0;
     core::ProtectionFlags protection = core::ProtectionFlags::None;
     AllocationScope scope = AllocationScope::Local;
+    std::vector<std::string> linkedLabels;
+    std::vector<std::string> linkedSymbols;
 };
 
 class AllocationRepository {

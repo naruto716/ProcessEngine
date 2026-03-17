@@ -43,7 +43,6 @@ public:
     [[nodiscard]] SymbolRecord registerSymbol(
         std::string_view name,
         core::Address address,
-        std::size_t size = 0,
         SymbolKind kind = SymbolKind::UserDefined,
         bool persistent = true);
     [[nodiscard]] bool unregisterSymbol(std::string_view name);
@@ -100,6 +99,8 @@ private:
     friend class ScriptContext;
 
     [[nodiscard]] std::optional<core::Address> tryResolveSessionName(std::string_view name) const;
+    void linkGlobalAllocationSymbol(core::Address address, std::string_view symbolName);
+    void unlinkGlobalAllocationSymbol(std::string_view symbolName);
 
     std::unique_ptr<backend::IProcessBackend> process_;
     ProcessScanner scanner_;

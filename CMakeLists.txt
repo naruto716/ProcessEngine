@@ -15,8 +15,34 @@ FetchContent_Declare(
     GIT_TAG        master
     GIT_SHALLOW    TRUE
 )
+FetchContent_Declare(
+    asmtk
+    GIT_REPOSITORY https://github.com/asmjit/asmtk.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(asmjit)
+
+FetchContent_GetProperties(asmtk)
+if (NOT asmtk_POPULATED)
+    if (POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_Populate(asmtk)
+
+    add_library(asmtk STATIC
+        ${asmtk_SOURCE_DIR}/src/asmtk/asmparser.cpp
+        ${asmtk_SOURCE_DIR}/src/asmtk/asmtokenizer.cpp
+    )
+
+    target_compile_features(asmtk PUBLIC cxx_std_20)
+    target_compile_definitions(asmtk PUBLIC ASMTK_STATIC)
+    target_include_directories(asmtk PUBLIC ${asmtk_SOURCE_DIR}/src)
+    target_link_libraries(asmtk PUBLIC asmjit::asmjit)
+
+    add_library(asmjit::asmtk ALIAS asmtk)
+endif()
 
 add_library(hexengine_engine
     src/backends/win32/win32_process_backend.cpp
@@ -33,11 +59,12 @@ add_library(hexengine_engine
     src/engine/remote_assembler.cpp
     src/engine/script_context.cpp
     src/engine/symbol_repository.cpp
+    src/engine/text_assembler.cpp
 )
 
 target_compile_features(hexengine_engine PUBLIC cxx_std_20)
 target_include_directories(hexengine_engine PUBLIC include)
-target_link_libraries(hexengine_engine PUBLIC asmjit::asmjit)
+target_link_libraries(hexengine_engine PUBLIC asmjit::asmjit asmjit::asmtk)
 
 if (WIN32)
     target_compile_definitions(hexengine_engine PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -138,4 +165,17 @@ target_link_libraries(ce_remote_assembler_test PRIVATE hexengine_engine)
 add_test(
     NAME ce_remote_assembler
     COMMAND ce_remote_assembler_test
+)
+
+add_executable(ce_text_assembler_test
+    tests/text_assembler_test.cpp
+)
+
+target_compile_features(ce_text_assembler_test PRIVATE cxx_std_20)
+target_include_directories(ce_text_assembler_test PRIVATE include tests)
+target_link_libraries(ce_text_assembler_test PRIVATE hexengine_engine)
+
+add_test(
+    NAME ce_text_assembler
+    COMMAND ce_text_assembler_test
 )

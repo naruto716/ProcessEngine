@@ -40,7 +40,7 @@ int main() {
         constexpr auto kPattern = "DE AD BE EF 13 37 C0 DE";
 
         engine->process().write(allocation.address, kPayload);
-        const auto registeredSymbol = engine->registerSymbol("example_symbol", allocation.address, kPayload.size());
+        const auto registeredSymbol = engine->registerSymbol("example_symbol", allocation.address);
 
         const auto matched = engine->assertBytes(allocation.address, kPattern);
         const auto localHits = engine->scanner().scan(

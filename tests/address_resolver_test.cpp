@@ -61,7 +61,6 @@ void registerSymbol(SymbolRepository& symbols, std::string_view name, Address ad
     symbols.registerSymbol(SymbolRecord{
         .name = std::string(name),
         .address = address,
-        .size = 0,
         .kind = SymbolKind::UserDefined,
         .persistent = true,
     });

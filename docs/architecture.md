@@ -1,6 +1,6 @@
 # Architecture
 
-See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Assembly And Labels](assembly.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
 
 This page is the high-level map of `hexengine`.
 
@@ -29,6 +29,8 @@ caller
           -> backend::IProcessBackend
               -> backends::win32::Win32ProcessBackend
           -> engine::ScriptContext (optional, per CE script)
+          -> engine::TextAssembler (optional, per assembly pass)
+              -> engine::RemoteAssembler
           -> engine::ProcessScanner
           -> engine::SymbolRepository
           -> engine::AddressResolver
@@ -127,6 +129,8 @@ Files:
 - [`../include/hexengine/engine/allocation_repository.hpp`](../include/hexengine/engine/allocation_repository.hpp)
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
 - [`../include/hexengine/engine/script_context.hpp`](../include/hexengine/engine/script_context.hpp)
+- [`../include/hexengine/engine/text_assembler.hpp`](../include/hexengine/engine/text_assembler.hpp)
+- [`../include/hexengine/engine/remote_assembler.hpp`](../include/hexengine/engine/remote_assembler.hpp)
 - [`../include/hexengine/engine/patch_repository.hpp`](../include/hexengine/engine/patch_repository.hpp)
 - [`../include/hexengine/engine/patch_service.hpp`](../include/hexengine/engine/patch_service.hpp)
 - [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
@@ -142,8 +146,50 @@ This is where reusable engine behavior starts:
 - execute target code through the backend
 - manage session-global allocations
 - manage script-local allocations and labels
+- assemble text into remote memory through AsmTK + AsmJit
 - manage named patches
 - expose a single session object to callers
+
+## Name Ownership Model
+
+The current engine deliberately separates 3 kinds of names:
+
+1. script-local labels
+2. session-global symbols
+3. assembler-local labels
+
+### Script-local labels
+
+Owned by `ScriptContext`.
+
+These are the persistent names visible to:
+
+- `ScriptContext::resolveAddress(...)`
+- local enable/disable style flows that reuse the same script context
+
+Local allocations create a same-name script label automatically.
+
+### Session-global symbols
+
+Owned by `SymbolRepository`.
+
+These are published names visible to:
+
+- `EngineSession::resolveAddress(...)`
+- `EngineSession::resolveSymbol(...)`
+- any script context that falls back to session lookup
+
+### Assembler-local labels
+
+Owned only by `TextAssembler` / `RemoteAssembler` during one assembly pass.
+
+These are internal branch/fixup labels from the current text block.
+
+They are intentionally not committed back into `ScriptContext`.
+
+That keeps enable/disable/re-enable flows from turning into a rebinding problem.
+
+For the detailed rationale, see [Assembly And Labels](assembly.md).
 
 ## Main Runtime Flows
 
@@ -191,7 +237,6 @@ With a script context:
 caller
   -> ScriptContext::resolveAddress("newmem")
       -> local script names
-      -> session-global allocs
       -> registered symbols / modules / literals
 ```
 
@@ -220,7 +265,10 @@ caller
       -> AllocationService::allocate(request)
           -> IProcessBackend::allocate(...)
           -> AllocationRepository::upsert(...)
+      -> SymbolRepository::registerSymbol(...)
 ```
+
+Allocation records also track any linked labels and linked symbols so teardown can unregister them consistently.
 
 Script-local allocation uses the script context instead:
 
@@ -229,9 +277,10 @@ caller
   -> ScriptContext::alloc(request)
       -> IProcessBackend::allocate(...)
       -> local AllocationRepository::upsert(...)
+      -> local label map insert(name -> address)
 ```
 
-Local alloc names stay inside the script context until explicitly published.
+Local alloc names stay inside the script context until explicitly published, but they already resolve locally because `alloc(name, ...)` also creates a same-name script label.
 
 ### Apply And Restore A Patch
 
@@ -284,8 +333,27 @@ caller
 caller
   -> ScriptContext::declareLabel / bindLabel
       -> labels shadow alloc and global names within the script context
-      -> registerSymbol(labelName) publishes a label globally
+      -> registerSymbol(labelName) publishes a label globally with SymbolKind::Label
 ```
+
+### Text Assembly
+
+```text
+caller
+  -> TextAssembler(script, cave)
+      -> AsmTK parses instruction text
+      -> unknown symbols resolve through:
+           1. current block labels
+           2. script labels
+           3. session symbols/modules
+      -> AsmJit encodes bytes into RemoteAssembler
+      -> TextAssembler::flush()
+           -> fail if unresolved assembler labels remain
+           -> RemoteAssembler::flush()
+           -> write new bytes into the remote process
+```
+
+Implicit labels declared in the current text block remain assembler-local and do not become script labels automatically.
 
 ## What To Read Next
 

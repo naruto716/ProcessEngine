@@ -17,6 +17,27 @@ namespace {
     return stream.str();
 }
 
+template <typename Container>
+void appendUnique(Container& values, std::string_view value) {
+    const auto folded = core::foldCaseAscii(value);
+    const auto exists = std::any_of(values.begin(), values.end(), [&](const std::string& current) {
+        return core::foldCaseAscii(current) == folded;
+    });
+    if (!exists) {
+        values.emplace_back(value);
+    }
+}
+
+template <typename Container>
+void eraseFolded(Container& values, std::string_view value) {
+    const auto folded = core::foldCaseAscii(value);
+    values.erase(
+        std::remove_if(values.begin(), values.end(), [&](const std::string& current) {
+            return core::foldCaseAscii(current) == folded;
+        }),
+        values.end());
+}
+
 }  // namespace
 
 ScriptContext::ScriptContext(EngineSession& session, std::string contextId)
@@ -63,6 +84,9 @@ AllocationRecord ScriptContext::alloc(const AllocationRequest& request) {
     if (localAllocations_.find(request.name)) {
         throw std::runtime_error(buildError("Local allocation already exists", request.name));
     }
+    if (labels_.find(std::string(request.name)) != labels_.end()) {
+        throw std::runtime_error(buildError("Local allocation collides with an existing label", request.name));
+    }
 
     const auto block = session_.process().allocate(request.size, request.protection, request.nearAddress);
     AllocationRecord record{
@@ -71,9 +95,14 @@ AllocationRecord ScriptContext::alloc(const AllocationRequest& request) {
         .size = block.size,
         .protection = block.protection,
         .scope = AllocationScope::Local,
+        .linkedLabels = {request.name},
     };
 
     localAllocations_.upsert(record);
+    labels_.emplace(record.name, LabelRecord{
+        .name = record.name,
+        .address = record.address,
+    });
     return record;
 }
 
@@ -83,26 +112,11 @@ AllocationRecord ScriptContext::globalAlloc(const AllocationRequest& request) {
 
 bool ScriptContext::dealloc(std::string_view name) {
     if (const auto local = localAllocations_.find(name)) {
-        std::ostringstream danglingSymbols;
-        auto danglingCount = std::size_t{0};
-        for (const auto& symbol : session_.symbols().list()) {
-            if (symbol.address != local->address) {
-                continue;
-            }
-
-            if (danglingCount++ == 0) {
-                // Not ideal but consistent with CE
-                danglingSymbols << "hexengine: ScriptContext '" << contextId_
-                                << "' is deallocating local allocation '" << local->name
-                                << "' while published symbol(s) still point to 0x"
-                                << std::hex << local->address << std::dec << ':';
-            }
-
-            danglingSymbols << ' ' << symbol.name;
+        for (const auto& labelName : local->linkedLabels) {
+            (void)labels_.erase(labelName);
         }
-
-        if (danglingCount != 0) {
-            std::clog << danglingSymbols.str() << '\n';
+        for (const auto& symbolName : local->linkedSymbols) {
+            (void)session_.unregisterSymbol(symbolName);
         }
 
         session_.process().free(local->address);
@@ -126,9 +140,13 @@ void ScriptContext::declareLabel(std::string_view name) {
     if (labels_.find(std::string(name)) != labels_.end()) {
         throw std::runtime_error("Label already exists: " + std::string(name));
     }
+    if (localAllocations_.find(name)) {
+        throw std::runtime_error("Label already exists: " + std::string(name));
+    }
 
-    labels_.emplace(std::string(name), LabelRecord{
-        .name = std::string(name),
+    const auto key = std::string(name);
+    labels_.emplace(key, LabelRecord{
+        .name = key,
         .address = std::nullopt,
     });
 }
@@ -180,21 +198,21 @@ std::vector<LabelRecord> ScriptContext::listLabels() const {
 }
 
 SymbolRecord ScriptContext::registerSymbol(std::string_view name) {
+    if (const auto localAllocation = localAllocations_.find(name)) {
+        const auto symbol = session_.registerSymbol(
+            name,
+            localAllocation->address,
+            SymbolKind::Allocation,
+            true);
+        linkLocalAllocationSymbol(localAllocation->address, symbol.name);
+        return symbol;
+    }
+
     if (const auto labelAddress = findLabel(name); labelAddress.has_value()) {
         return session_.registerSymbol(
             name,
             *labelAddress,
-            0,
-            SymbolKind::UserDefined,
-            true);
-    }
-
-    if (const auto localAllocation = localAllocations_.find(name)) {
-        return session_.registerSymbol(
-            name,
-            localAllocation->address,
-            localAllocation->size,
-            SymbolKind::Allocation,
+            SymbolKind::Label,
             true);
     }
 
@@ -208,14 +226,19 @@ SymbolRecord ScriptContext::registerSymbol(std::string_view name) {
 SymbolRecord ScriptContext::registerSymbol(
     std::string_view alias,
     core::Address address,
-    std::size_t size,
     SymbolKind kind,
     bool persistent) {
-    return session_.registerSymbol(alias, address, size, kind, persistent);
+    const auto symbol = session_.registerSymbol(alias, address, kind, persistent);
+    linkLocalAllocationSymbol(address, symbol.name);
+    return symbol;
 }
 
 bool ScriptContext::unregisterSymbol(std::string_view name) {
-    return session_.unregisterSymbol(name);
+    const auto removed = session_.unregisterSymbol(name);
+    if (removed) {
+        unlinkLocalAllocationSymbol(name);
+    }
+    return removed;
 }
 
 core::Address ScriptContext::resolveAddress(std::string_view expression) const {
@@ -230,10 +253,6 @@ std::optional<core::Address> ScriptContext::tryResolveLocalName(std::string_view
         return iterator->second.address;
     }
 
-    if (const auto local = localAllocations_.find(name)) {
-        return local->address;
-    }
-
     return std::nullopt;
 }
 
@@ -243,6 +262,31 @@ std::optional<core::Address> ScriptContext::tryResolveName(std::string_view name
     }
 
     return session_.tryResolveSessionName(name);
+}
+
+void ScriptContext::linkLocalAllocationSymbol(core::Address address, std::string_view symbolName) {
+    for (auto record : localAllocations_.list()) {
+        if (record.address != address) {
+            continue;
+        }
+
+        appendUnique(record.linkedSymbols, symbolName);
+        localAllocations_.upsert(std::move(record));
+        return;
+    }
+}
+
+void ScriptContext::unlinkLocalAllocationSymbol(std::string_view symbolName) {
+    for (auto record : localAllocations_.list()) {
+        const auto before = record.linkedSymbols.size();
+        eraseFolded(record.linkedSymbols, symbolName);
+        if (record.linkedSymbols.size() == before) {
+            continue;
+        }
+
+        localAllocations_.upsert(std::move(record));
+        return;
+    }
 }
 
 }  // namespace hexengine::engine

@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string_view>
 
@@ -28,28 +27,6 @@ void expect(bool condition, std::string_view message) {
         fail(message);
     }
 }
-
-class ScopedClogCapture {
-public:
-    ScopedClogCapture()
-        : previous_(std::clog.rdbuf(stream_.rdbuf())) {
-    }
-
-    ScopedClogCapture(const ScopedClogCapture&) = delete;
-    ScopedClogCapture& operator=(const ScopedClogCapture&) = delete;
-
-    ~ScopedClogCapture() {
-        std::clog.rdbuf(previous_);
-    }
-
-    [[nodiscard]] std::string str() const {
-        return stream_.str();
-    }
-
-private:
-    std::ostringstream stream_;
-    std::streambuf* previous_ = nullptr;
-};
 
 template <typename Callback>
 void expectThrows(Callback&& callback, std::string_view messagePart) {
@@ -104,8 +81,11 @@ void runTests() {
         .size = 0x80,
     });
     expect(enableContext.resolveAddress("sharedmem") == localShadow.address, "Local alloc should shadow global alloc names");
+    expect(enableContext.hasLabel("sharedmem"), "Local alloc should also create a same-name local label");
+    expect(enableContext.findLabel("sharedmem").value() == localShadow.address, "Local alloc label should bind to the allocation address");
     expect(session.resolveAddress("sharedmem") == globalFirst.address, "Session resolution should still see the global alloc");
     expect(enableContext.dealloc("sharedmem"), "Local dealloc should release the shadowing local alloc");
+    expect(!enableContext.hasLabel("sharedmem"), "Local dealloc should remove the same-name local label");
     expect(fake->isAllocated(globalFirst.address), "Deallocating the local shadow should not affect the global alloc");
 
     const auto localPublished = enableContext.alloc(AllocationRequest{
@@ -113,33 +93,36 @@ void runTests() {
         .size = 0x100,
     });
     expect(enableContext.resolveAddress("newmem") == localPublished.address, "Local alloc should resolve in the script context");
+    expect(enableContext.hasLabel("newmem"), "Local alloc should be reflected in the label map");
+    expectThrows(
+        [&] { enableContext.declareLabel("newmem"); },
+        "Label already exists");
     expectThrows(
         [&] { (void)session.resolveAddress("newmem"); },
         "unknown symbol or module");
 
     const auto publishedLocal = enableContext.registerSymbol("newmem");
     expect(publishedLocal.address == localPublished.address, "registerSymbol(localName) should publish the local allocation address");
+    expect(publishedLocal.kind == SymbolKind::Allocation, "Alloc-backed symbol should keep allocation kind");
     expect(session.resolveAddress("newmem") == localPublished.address, "Published local alloc should resolve session-wide");
 
     const auto aliasSymbol = enableContext.registerSymbol(
         "newmem_alias",
         localPublished.address,
-        localPublished.size,
         SymbolKind::Allocation,
         true);
     expect(aliasSymbol.address == localPublished.address, "Explicit alias registration should preserve the address");
+    expect(aliasSymbol.kind == SymbolKind::Allocation, "Allocation alias symbol should keep allocation kind");
 
-    ScopedClogCapture deallocWarningCapture;
     expect(enableContext.dealloc("newmem"), "Local dealloc should free the local allocation");
     expect(!fake->isAllocated(localPublished.address), "Local dealloc should free the backing allocation");
-    const auto deallocWarning = deallocWarningCapture.str();
-    expect(deallocWarning.find("published symbol(s) still point") != std::string::npos, "Local dealloc should warn about dangling published symbols");
-    expect(deallocWarning.find("newmem") != std::string::npos, "Local dealloc warning should mention the published local symbol");
-    expect(deallocWarning.find("newmem_alias") != std::string::npos, "Local dealloc warning should mention alias symbols too");
+    expect(!enableContext.hasLabel("newmem"), "Local dealloc should remove the same-name local label");
     const auto publishedAfterLocalDealloc = session.resolveSymbol("newmem");
-    expect(publishedAfterLocalDealloc.has_value(), "Explicitly registered symbol should survive local dealloc");
-    expect(publishedAfterLocalDealloc->address == localPublished.address, "Published symbol should keep the original address");
-    expect(enableContext.resolveAddress("newmem") == localPublished.address, "After local dealloc the script context should fall back to the published symbol");
+    expect(!publishedAfterLocalDealloc.has_value(), "Local dealloc should unregister linked allocation symbols");
+    expect(!session.resolveSymbol("newmem_alias").has_value(), "Local dealloc should unregister linked allocation aliases");
+    expectThrows(
+        [&] { (void)enableContext.resolveAddress("newmem"); },
+        "unknown symbol or module");
 
     // Label tests - labels are now script-scoped, not pass-scoped
     expect(!enableContext.hasLabel("returnhere"), "Script context should not contain undeclared labels");
@@ -148,6 +131,14 @@ void runTests() {
     expectThrows(
         [&] { (void)enableContext.resolveAddress("returnhere"); },
         "not bound");
+    expectThrows(
+        [&] {
+            (void)enableContext.alloc(AllocationRequest{
+                .name = "returnhere",
+                .size = 0x40,
+            });
+        },
+        "collides with an existing label");
 
     enableContext.bindLabel("returnhere", 0x5000);
     expect(enableContext.resolveAddress("returnhere+0x10") == 0x5010, "Bound label should resolve with arithmetic");
@@ -159,6 +150,7 @@ void runTests() {
 
     const auto publishedLabel = enableContext.registerSymbol("returnhere");
     expect(publishedLabel.address == 0x5000, "registerSymbol(labelName) should publish the label's bound address");
+    expect(publishedLabel.kind == SymbolKind::Label, "Label-backed symbol should use label kind");
     expect(session.resolveAddress("returnhere") == 0x5000, "Published label should resolve session-wide");
     expect(session.unregisterSymbol("returnhere"), "Published label symbol should be removable");
 
@@ -168,6 +160,7 @@ void runTests() {
             .name = "tempalloc",
             .size = 0x90,
         });
+        expect(leakingContext.hasLabel("tempalloc"), "Leaked local alloc should still create a same-name label");
         expect(fake->isAllocated(leaked.address), "The fake backend should track local allocations");
         expect(session.destroyScriptContext("feature.leak"), "Destroying an existing script context should return true");
         expect(fake->isAllocated(leaked.address), "Destroying a script context should not implicitly clean up local allocations");
@@ -178,8 +171,8 @@ void runTests() {
     expect(session.destroyScriptContext("feature.enable"), "Destroying a live script context should succeed");
     expect(!session.destroyScriptContext("feature.enable"), "Destroying the same script context twice should return false");
 
-    expect(session.unregisterSymbol("newmem"), "Explicitly registered local symbol should be removable");
-    expect(session.unregisterSymbol("newmem_alias"), "Explicitly registered alias should be removable");
+    expect(!session.unregisterSymbol("newmem"), "Local dealloc should have already removed the published local symbol");
+    expect(!session.unregisterSymbol("newmem_alias"), "Local dealloc should have already removed the allocation alias");
     expect(session.deallocate("sharedmem"), "Global alloc should be deallocatable");
 }
 

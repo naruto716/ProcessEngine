@@ -1,6 +1,6 @@
 # Usage
 
-See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Pointers](pointers.md) | [Patching](patching.md)
+See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Assembly And Labels](assembly.md) | [Pointers](pointers.md) | [Patching](patching.md)
 
 This page shows the normal way to use `hexengine` from native application code.
 
@@ -84,7 +84,7 @@ For more detail, see [Pointers](pointers.md).
 Register:
 
 ```cpp
-session->registerSymbol("player_base", address, size);
+session->registerSymbol("player_base", address);
 ```
 
 Resolve:
@@ -98,6 +98,22 @@ Unregister:
 ```cpp
 session->unregisterSymbol("player_base");
 ```
+
+Current symbol kinds are:
+
+- `UserDefined`
+- `Label`
+- `Allocation`
+- `Module`
+
+Symbols carry only publication metadata:
+
+- name
+- address
+- kind
+- persistence flag
+
+Allocation size and protection live on allocation records, not on symbols.
 
 ## 6. Global Alloc From The Session
 
@@ -120,6 +136,7 @@ session->deallocate("sharedmem");
 
 Use `globalAlloc(...)` for CE-style `globalalloc` semantics.
 `globalAlloc(...)` publishes the allocation name as a session-global symbol.
+Global allocations also track linked allocation aliases so `deallocate(...)` can unregister them consistently.
 
 ## 7. Script-Local Allocations And Labels
 
@@ -142,8 +159,9 @@ script.registerSymbol("newmem");
 Important behavior:
 
 - script-local alloc names resolve only inside that `ScriptContext`
+- local allocs also create a same-name script label immediately
 - `registerSymbol(name)` explicitly publishes a local name globally
-- deallocating a local alloc does not unregister published global symbols; `hexengine` warns, but stays CE-compatible
+- deallocating a local alloc removes linked local labels and unregisters linked alloc-backed global symbols
 - related scripts should reuse the same script-context id if they need shared local names
 
 Labels can be declared and bound directly on the script context:
@@ -155,9 +173,49 @@ auto returnAddress = script.resolveAddress("returnhere");
 script.registerSymbol("returnhere");  // publishes the label globally
 ```
 
-Labels are script-scoped — they persist as long as the `ScriptContext` exists, just like local allocations. Labels shadow alloc names and global names when resolving addresses within the script context.
+Labels are script-scoped: they persist as long as the `ScriptContext` exists, just like local allocations. Labels shadow alloc names and global names when resolving addresses within the script context.
 
-## 8. Change Protection
+If you publish a script label with `registerSymbol(name)`, the resulting global symbol uses `SymbolKind::Label`.
+
+## 8. Assemble Remote Code
+
+`TextAssembler` is the current text-assembly facade over AsmTK + AsmJit:
+
+```cpp
+#include "hexengine/engine/text_assembler.hpp"
+
+const auto cave = script.alloc(hexengine::engine::AllocationRequest{
+    .name = "newmem",
+    .size = 0x1000,
+    .protection = hexengine::core::kReadWriteExecute,
+});
+
+hexengine::engine::TextAssembler assembler(script, cave);
+assembler.append(R"(
+  mov rax, newmem
+loop:
+  nop
+  jmp loop
+)");
+assembler.flush();
+```
+
+Important behavior:
+
+- local alloc names like `newmem` resolve through the script context
+- published symbols and modules resolve through the session
+- labels declared only in the assembly text, such as `loop:`, stay private to that assembly pass
+- `flush()` rejects unresolved assembler labels before writing bytes
+
+If you need a label to persist across enable/disable style flows, do not rely on an implicit asm label. Use:
+
+- an alloc-backed name like `newmem`
+- an explicit script label via `declareLabel(...)` / `bindLabel(...)`
+- or an explicit global symbol via `registerSymbol(...)`
+
+For the detailed ownership model, see [Assembly And Labels](assembly.md).
+
+## 9. Change Protection
 
 ```cpp
 session->fullAccess(address, size);
@@ -169,7 +227,7 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
-## 9. Copy Bytes With `readMem`
+## 10. Copy Bytes With `readMem`
 
 `readMem` is the CE-style byte-copy helper:
 
@@ -184,7 +242,7 @@ In `hexengine`, this means:
 - temporarily make the destination writable if needed
 - restore the previous protection after the write
 
-## 10. Execute Remote Code
+## 11. Execute Remote Code
 
 `executeCode` is the engine-level "run this entrypoint inside the target process" operation:
 
@@ -199,7 +257,7 @@ At the common engine interface level, this only means:
 
 The backend decides how to do that. In the Win32 backend, this is implemented with `CreateRemoteThread`.
 
-## 11. Apply And Restore Patches
+## 12. Apply And Restore Patches
 
 Byte patch:
 
@@ -265,7 +323,7 @@ int main() {
         .nearAddress = hookAddress,
     });
 
-    session->registerSymbol("player_base", cave.address, cave.size);
+    session->registerSymbol("player_base", cave.address);
     session->fullAccess(hookAddress, 16);
 
     const std::array<std::byte, 5> patch{

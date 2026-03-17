@@ -1,5 +1,6 @@
 #include "hexengine/engine/remote_assembler.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -53,6 +54,57 @@ core::Address RemoteAssembler::currentAddress() const noexcept {
 
 core::Address RemoteAssembler::baseAddress() const noexcept {
     return baseAddress_;
+}
+
+std::optional<core::Address> RemoteAssembler::labelAddress(std::string_view name) const {
+    const auto entries = code_.label_entries();
+    for (std::size_t index = 0; index < entries.size(); ++index) {
+        const auto& entry = entries[index];
+        if (!entry.has_name() || entry.name_size() != name.size()) {
+            continue;
+        }
+
+        if (std::string_view(entry.name(), entry.name_size()) != name) {
+            continue;
+        }
+
+        if (!entry.is_bound()) {
+            return std::nullopt;
+        }
+
+        return baseAddress_ + code_.label_offset_from_base(static_cast<uint32_t>(index));
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> RemoteAssembler::namedLabels() const {
+    std::vector<std::string> labels;
+    for (const auto& entry : code_.label_entries()) {
+        if (!entry.has_name()) {
+            continue;
+        }
+
+        labels.emplace_back(entry.name(), entry.name_size());
+    }
+
+    std::sort(labels.begin(), labels.end());
+    labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
+    return labels;
+}
+
+std::vector<std::string> RemoteAssembler::unresolvedLabelNames() const {
+    std::vector<std::string> labels;
+    for (const auto& entry : code_.label_entries()) {
+        if (!entry.has_name() || entry.is_bound() || !entry.has_fixups()) {
+            continue;
+        }
+
+        labels.emplace_back(entry.name(), entry.name_size());
+    }
+
+    std::sort(labels.begin(), labels.end());
+    labels.erase(std::unique(labels.begin(), labels.end()), labels.end());
+    return labels;
 }
 
 std::size_t RemoteAssembler::flush() {

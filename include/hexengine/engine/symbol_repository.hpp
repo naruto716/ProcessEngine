@@ -16,6 +16,7 @@ namespace hexengine::engine {
 
 enum class SymbolKind {
     UserDefined,
+    Label,
     Allocation,
     Module,
 };
@@ -23,7 +24,6 @@ enum class SymbolKind {
 struct SymbolRecord {
     std::string name;
     core::Address address = 0;
-    std::size_t size = 0;
     SymbolKind kind = SymbolKind::UserDefined;
     bool persistent = true;
 };

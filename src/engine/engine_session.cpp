@@ -1,5 +1,6 @@
 #include "hexengine/engine/engine_session.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "hexengine/engine/script_context.hpp"
@@ -15,6 +16,27 @@ backend::IProcessBackend& requireProcess(const std::unique_ptr<backend::IProcess
     }
 
     return *process;
+}
+
+template <typename Container>
+void appendUnique(Container& values, std::string_view value) {
+    const auto folded = core::foldCaseAscii(value);
+    const auto exists = std::any_of(values.begin(), values.end(), [&](const std::string& current) {
+        return core::foldCaseAscii(current) == folded;
+    });
+    if (!exists) {
+        values.emplace_back(value);
+    }
+}
+
+template <typename Container>
+void eraseFolded(Container& values, std::string_view value) {
+    const auto folded = core::foldCaseAscii(value);
+    values.erase(
+        std::remove_if(values.begin(), values.end(), [&](const std::string& current) {
+            return core::foldCaseAscii(current) == folded;
+        }),
+        values.end());
 }
 
 }  // namespace
@@ -91,7 +113,6 @@ const PatchService& EngineSession::patches() const noexcept {
 SymbolRecord EngineSession::registerSymbol(
     std::string_view name,
     core::Address address,
-    std::size_t size,
     SymbolKind kind,
     bool persistent) {
     detail::validateUserDefinedName(name, "Registered symbol");
@@ -102,17 +123,21 @@ SymbolRecord EngineSession::registerSymbol(
     SymbolRecord symbol{
         .name = std::string(name),
         .address = address,
-        .size = size,
         .kind = kind,
         .persistent = persistent,
     };
 
     symbols_.registerSymbol(symbol);
+    linkGlobalAllocationSymbol(address, symbol.name);
     return symbol;
 }
 
 bool EngineSession::unregisterSymbol(std::string_view name) {
-    return symbols_.unregisterSymbol(name);
+    const auto removed = symbols_.unregisterSymbol(name);
+    if (removed) {
+        unlinkGlobalAllocationSymbol(name);
+    }
+    return removed;
 }
 
 std::optional<SymbolRecord> EngineSession::resolveSymbol(std::string_view name) const {
@@ -124,7 +149,6 @@ std::optional<SymbolRecord> EngineSession::resolveSymbol(std::string_view name) 
         return SymbolRecord{
             .name = module->name,
             .address = module->base,
-            .size = module->size,
             .kind = SymbolKind::Module,
             .persistent = true,
         };
@@ -139,10 +163,12 @@ AllocationRecord EngineSession::globalAlloc(const AllocationRequest& request) {
     }
 
     const auto record = allocations_.allocate(request);
+    auto stored = allocationRecords_.find(record.name).value_or(record);
+    appendUnique(stored.linkedSymbols, record.name);
+    allocationRecords_.upsert(stored);
     symbols_.registerSymbol(SymbolRecord{
         .name = record.name,
         .address = record.address,
-        .size = record.size,
         .kind = SymbolKind::Allocation,
         .persistent = true,
     });
@@ -150,16 +176,16 @@ AllocationRecord EngineSession::globalAlloc(const AllocationRequest& request) {
 }
 
 bool EngineSession::deallocate(std::string_view name) {
-    if (!allocationRecords_.find(name)) {
+    const auto record = allocationRecords_.find(name);
+    if (!record) {
         return false;
     }
 
-    const auto removed = allocations_.deallocate(name);
-    if (removed) {
-        (void)symbols_.unregisterSymbol(name);
+    for (const auto& symbolName : record->linkedSymbols) {
+        (void)symbols_.unregisterSymbol(symbolName);
     }
 
-    return removed;
+    return allocations_.deallocate(name);
 }
 
 ScriptContext& EngineSession::createScriptContext(std::string_view contextId) {
@@ -275,6 +301,31 @@ std::optional<core::Address> EngineSession::tryResolveSessionName(std::string_vi
     }
 
     return std::nullopt;
+}
+
+void EngineSession::linkGlobalAllocationSymbol(core::Address address, std::string_view symbolName) {
+    for (auto record : allocationRecords_.list()) {
+        if (record.scope != AllocationScope::Global || record.address != address) {
+            continue;
+        }
+
+        appendUnique(record.linkedSymbols, symbolName);
+        allocationRecords_.upsert(std::move(record));
+        return;
+    }
+}
+
+void EngineSession::unlinkGlobalAllocationSymbol(std::string_view symbolName) {
+    for (auto record : allocationRecords_.list()) {
+        const auto before = record.linkedSymbols.size();
+        eraseFolded(record.linkedSymbols, symbolName);
+        if (record.linkedSymbols.size() == before) {
+            continue;
+        }
+
+        allocationRecords_.upsert(std::move(record));
+        return;
+    }
 }
 
 }  // namespace hexengine::engine

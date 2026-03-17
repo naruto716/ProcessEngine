@@ -2,6 +2,9 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <asmjit/x86.h>
@@ -33,6 +36,15 @@ public:
 
     /// Remote base address of the code cave.
     [[nodiscard]] core::Address baseAddress() const noexcept;
+
+    /// Returns the resolved absolute address of the named label, if it exists and is bound.
+    [[nodiscard]] std::optional<core::Address> labelAddress(std::string_view name) const;
+
+    /// Returns all named labels currently known to the assembler.
+    [[nodiscard]] std::vector<std::string> namedLabels() const;
+
+    /// Returns any named labels that still have unresolved fixups.
+    [[nodiscard]] std::vector<std::string> unresolvedLabelNames() const;
 
     /// Flush assembled bytes to the remote process.
     /// Writes only the bytes emitted since the last flush.

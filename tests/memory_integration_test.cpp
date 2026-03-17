@@ -470,8 +470,7 @@ void runIntegration(const fs::path& targetPath) {
 
     const auto registered = engine->registerSymbol(
         "fixture.module.pattern",
-        manifest.modulePatternAddress,
-        manifest.modulePatternSize);
+        manifest.modulePatternAddress);
     expect(registered.address == manifest.modulePatternAddress, "Standalone symbol registration returned the wrong address");
 
     const auto resolved = engine->resolveSymbol("fixture.module.pattern");
@@ -481,13 +480,11 @@ void runIntegration(const fs::path& targetPath) {
 
     const auto pointerRootSymbol = engine->registerSymbol(
         "fixture.pointer.root",
-        manifest.pointerRootStorageAddress,
-        sizeof(std::uintptr_t));
+        manifest.pointerRootStorageAddress);
     expect(pointerRootSymbol.address == manifest.pointerRootStorageAddress, "Pointer root symbol registration failed");
     const auto hyphenatedPointerRootSymbol = engine->registerSymbol(
         "fixture-pointer-root",
-        manifest.pointerRootStorageAddress,
-        sizeof(std::uintptr_t));
+        manifest.pointerRootStorageAddress);
     expect(hyphenatedPointerRootSymbol.address == manifest.pointerRootStorageAddress, "Hyphenated pointer root symbol registration failed");
 
     const auto addressBySymbolExpression = engine->resolveAddress("fixture-pointer-root-0x10");
@@ -537,9 +534,8 @@ void runIntegration(const fs::path& targetPath) {
     expect(engine->resolveAddress("newmem") == scriptLocal.address, "Published local alloc did not resolve globally");
     expect(script.dealloc("newmem"), "Script-local dealloc failed");
     const auto publishedAfterLocalDealloc = engine->resolveSymbol("newmem");
-    expect(publishedAfterLocalDealloc.has_value(), "Explicitly published local symbol should survive local dealloc");
-    expect(publishedAfterLocalDealloc->address == scriptLocal.address, "Published local symbol should keep the original address");
-    expect(engine->unregisterSymbol("newmem"), "Published local symbol unregister failed");
+    expect(!publishedAfterLocalDealloc.has_value(), "Script-local dealloc should remove linked allocation symbols");
+    expect(!engine->unregisterSymbol("newmem"), "Script-local dealloc should already have unregistered linked allocation symbols");
     expect(engine->destroyScriptContext("integration.feature"), "Destroying an existing script context should succeed");
     expect(engine->findScriptContext("integration.feature") == nullptr, "Destroyed script context should not be discoverable");
 
@@ -665,8 +661,11 @@ void runIntegration(const fs::path& targetPath) {
     const auto globalSymbol = engine->resolveSymbol("integration.global.alloc");
     expect(globalSymbol.has_value(), "Global allocation should resolve as a global symbol");
     expect(globalSymbol->address == globalFirst.address, "Global allocation symbol address mismatch");
+    const auto globalAlias = engine->registerSymbol("integration.global.alias", globalFirst.address, SymbolKind::Allocation, true);
+    expect(globalAlias.address == globalFirst.address, "Global allocation alias registration returned the wrong address");
     expect(engine->deallocate("integration.global.alloc"), "Global allocation deallocate failed");
     expect(!engine->symbols().find("integration.global.alloc").has_value(), "Global allocation deallocate should unregister the allocation symbol");
+    expect(!engine->symbols().find("integration.global.alias").has_value(), "Global allocation deallocate should unregister linked allocation aliases");
 }
 
 }  // namespace

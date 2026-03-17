@@ -47,7 +47,6 @@ public:
     [[nodiscard]] SymbolRecord registerSymbol(
         std::string_view alias,
         core::Address address,
-        std::size_t size = 0,
         SymbolKind kind = SymbolKind::UserDefined,
         bool persistent = true);
     [[nodiscard]] bool unregisterSymbol(std::string_view name);
@@ -57,6 +56,8 @@ public:
 private:
     [[nodiscard]] std::optional<core::Address> tryResolveLocalName(std::string_view name) const;
     [[nodiscard]] std::optional<core::Address> tryResolveName(std::string_view name) const;
+    void linkLocalAllocationSymbol(core::Address address, std::string_view symbolName);
+    void unlinkLocalAllocationSymbol(std::string_view symbolName);
 
     EngineSession& session_;
     std::string contextId_;

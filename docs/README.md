@@ -16,6 +16,9 @@ This folder is the documentation home for `hexengine`.
 - [Patching](patching.md)
   Named byte patches, NOP helpers, restore, and CE-style enable/disable semantics.
 
+- [Assembly And Labels](assembly.md)
+  Detailed ownership rules for script labels, global symbols, alloc-backed names, and AsmTK/AsmJit text assembly.
+
 ## Learn The Codebase
 
 - [Architecture](architecture.md)
@@ -42,10 +45,11 @@ The engine currently covers:
 - CE-style address expression resolution
 - multilevel pointer-chain resolution
 - script-scoped labels through `ScriptContext`
+- text assembly through AsmTK + AsmJit, with pass-local internal assembler labels
 - CE-style `readMem` byte copying
 - target-code execution through `executeCode`
 - named patch management
 
-The script label system is the engine-side seam for future AsmJit and Lua integration. This repo does not yet embed either runtime.
+The script label system is the engine-side seam for future Lua integration. AsmJit and AsmTK are already used for remote code emission, but implicit assembler labels deliberately stay private to one assembly pass.
 
 The engine does not yet try to be a full Cheat Engine replacement. It is the runtime foundation that future higher-level trainer features can build on.

@@ -28,6 +28,7 @@ It currently verifies:
 - direct CE-style address resolution
 - template-style pointer resolution
 - CE-style pointer-expression resolution
+- alloc-backed symbol cleanup on local/global deallocation
 
 Run it through `ctest`:
 
@@ -75,7 +76,32 @@ This is the focused scope and resolver-layering test for:
 - script-local alloc shadowing
 - explicit publication with `registerSymbol(name)`
 - label precedence and scoping
+- `SymbolKind::Allocation` vs `SymbolKind::Label`
+- dealloc removing linked local labels
+- dealloc unregistering linked allocation-backed global symbols
 - script-context teardown without implicit cleanup
+
+## Text Assembler Test
+
+File:
+
+- [`../tests/text_assembler_test.cpp`](../tests/text_assembler_test.cpp)
+
+This is the focused AsmTK/AsmJit integration test for:
+
+- text assembly into a remote code cave
+- script-local name resolution from assembly text
+- session-global symbol resolution from assembly text
+- SSE / AVX / x87 instruction parsing through the text path
+- unresolved internal assembler labels
+- unresolved script labels referenced from assembly text
+- duplicate parser labels
+- assembler-local label reuse across separate passes
+
+The important current rule validated here is:
+
+- implicit labels declared only inside assembly text remain private to that assembly pass
+- they do not become persistent script labels automatically
 
 ## Scan Benchmark
 
