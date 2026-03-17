@@ -23,6 +23,7 @@ class ScriptContext;
 
 class TextAssembler {
 public:
+    TextAssembler(ScriptContext& script, core::Address baseAddress);
     TextAssembler(ScriptContext& script, core::Address baseAddress, std::size_t caveSizeBytes);
     TextAssembler(ScriptContext& script, const AllocationRecord& target);
     ~TextAssembler();

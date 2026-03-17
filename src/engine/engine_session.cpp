@@ -157,6 +157,14 @@ std::optional<SymbolRecord> EngineSession::resolveSymbol(std::string_view name) 
     return std::nullopt;
 }
 
+std::optional<AllocationRecord> EngineSession::findGlobalAllocation(std::string_view name) const {
+    if (const auto record = allocationRecords_.find(name); record && record->scope == AllocationScope::Global) {
+        return record;
+    }
+
+    return std::nullopt;
+}
+
 AllocationRecord EngineSession::globalAlloc(const AllocationRequest& request) {
     if (const auto existing = allocationRecords_.find(request.name); !existing && symbols_.find(request.name)) {
         throw std::runtime_error("Global allocation collides with a registered symbol: " + request.name);

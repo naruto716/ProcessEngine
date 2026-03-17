@@ -7,6 +7,7 @@ This page documents the current `hexengine` model for:
 - script-local labels
 - allocation-backed labels
 - global symbols
+- CE-like multi-target assembly scripts
 - text assembly through AsmTK + AsmJit
 - what persists across enable/disable style flows
 - what deliberately stays private to one assembly pass
@@ -16,6 +17,7 @@ The short version is:
 - `ScriptContext` owns the persistent script-local names
 - `alloc(name, ...)` also creates a same-name local label
 - `registerSymbol(name)` publishes a local label or alloc globally
+- `AssemblyScript` scans a CE-like source string and splits it into address-bound chunks
 - `TextAssembler` uses AsmTK + AsmJit for one assembly pass
 - labels declared only inside assembly text stay private to that pass
 - local/global allocation teardown cleans up linked labels and symbols
@@ -81,6 +83,64 @@ They exist only while AsmTK/AsmJit are assembling that block.
 They are not committed back into `ScriptContext`.
 
 That is the current design on purpose. It avoids rebinding and stale-label issues across enable/disable/re-enable cycles.
+
+## 1.5. CE-Like Assembly Scripts
+
+For multi-origin assembly, `hexengine` now has a higher-level runner:
+
+- [`../include/hexengine/engine/assembly_script.hpp`](../include/hexengine/engine/assembly_script.hpp)
+- [`../src/engine/assembly_script.cpp`](../src/engine/assembly_script.cpp)
+
+`AssemblyScript` is not a replacement for `TextAssembler`.
+
+Instead:
+
+- `AssemblyScript` scans a CE-like script
+- decides where the current output address is
+- splits the source into one or more single-target chunks
+- feeds each chunk into its own `TextAssembler`
+
+This keeps AsmJit in the role it is good at:
+
+- one base address
+- one label/fixup universe
+- one emitted chunk at a time
+
+while still allowing CE-style source like:
+
+```asm
+alloc(newmem1, 0x100)
+alloc(newmem2, 0x100)
+
+newmem1:
+  ret
+
+loopbegin:
+  jmp loopbegin
+
+newmem2:
+  ret
+
+game.exe+0x100:
+  jmp newmem2
+```
+
+## 1.6. Current-Address Rule
+
+`AssemblyScript` treats `expr:` lines with one rule:
+
+- if `expr` already resolves to an address at that point in the scan:
+  - start a new chunk at that address
+- otherwise:
+  - treat it as an internal assembler label in the current chunk
+
+Practical consequences:
+
+- `alloc(newmem1, ...)` followed by `newmem1:` starts a chunk at `newmem1.address`
+- `game.exe+0x100:` starts a chunk at that resolved module-relative address
+- `loopbegin:` inside an active chunk stays an internal AsmTK/AsmJit label
+
+This is why internal loop labels still work without being promoted into script scope.
 
 ## 2. ScriptContext Ownership Rules
 
@@ -309,6 +369,10 @@ That means `hexengine` currently prefers:
 
 over automatic promotion of all assembler labels into script scope.
 
+`AssemblyScript` follows the same rule.
+
+It may switch chunks at names that already resolve, but it still does not commit newly discovered internal assembler labels into `ScriptContext`.
+
 ## 7. Concrete Examples
 
 ### Example A: Local alloc used from text assembly
@@ -350,7 +414,61 @@ What happens:
 - `loop` is not added to `ScriptContext`
 - later `script.resolveAddress("loop")` fails
 
-### Example C: Explicit script label published globally
+### Example C: Multi-target script execution
+
+```cpp
+#include "hexengine/engine/assembly_script.hpp"
+
+hexengine::engine::AssemblyScript scriptProgram(script);
+
+const auto result = scriptProgram.execute(R"(
+alloc(newmem1, 0x100)
+alloc(newmem2, 0x100)
+
+newmem1:
+  ret
+
+loopbegin:
+  jmp loopbegin
+
+newmem2:
+  ret
+
+game.exe+0x100:
+  jmp newmem2
+)");
+```
+
+What happens:
+
+- `alloc(...)` directives create the local alloc-backed labels first
+- `newmem1:` starts chunk 1
+- `loopbegin:` stays private to chunk 1
+- `newmem2:` starts chunk 2 because `newmem2` already resolves
+- `game.exe+0x100:` starts chunk 3 because the expression resolves
+- each chunk is assembled with its own `TextAssembler`
+
+### Example D: Internal label does not become a new target
+
+```cpp
+const auto result = scriptProgram.execute(R"(
+alloc(newmem1, 0x100)
+
+newmem1:
+  ret
+
+newmem2:
+  ret
+)");
+```
+
+Here `newmem2:` is not preexisting, so:
+
+- it stays an internal assembler label
+- the whole block assembles as one chunk
+- `script.resolveAddress("newmem2")` still fails afterwards
+
+### Example E: Explicit script label published globally
 
 ```cpp
 script.declareLabel("returnhere");
@@ -373,6 +491,13 @@ Important limitations:
 
 - text-assembly labels do not persist across passes
 - there is no automatic "promote this asm label into script scope" feature
+- `AssemblyScript` supports a focused CE-like subset, not full Auto Assembler yet
+- current directives are:
+  - `alloc(...)`
+  - `globalAlloc(...)`
+  - `dealloc(...)`
+  - `registerSymbol(...)`
+  - `unregisterSymbol(...)`
 - if you need a persistent name across enable/disable, it must be:
   - an alloc-backed name
   - an explicit script label
@@ -396,3 +521,5 @@ The important cases covered there are:
 - local/global allocation teardown unregisters linked symbols
 - internal asm labels stay private and can be reused in later passes
 - unresolved assembler labels fail before flush
+- CE-like assembly-script chunk splitting keeps known targets and internal labels separate
+- assembly scripts fail if they emit code before any current address exists

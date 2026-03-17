@@ -215,7 +215,52 @@ If you need a label to persist across enable/disable style flows, do not rely on
 
 For the detailed ownership model, see [Assembly And Labels](assembly.md).
 
-## 9. Change Protection
+## 9. Run A CE-Like Multi-Target Assembly Script
+
+If you want CE-style "current address" behavior across multiple targets, use `AssemblyScript`:
+
+```cpp
+#include "hexengine/engine/assembly_script.hpp"
+
+hexengine::engine::AssemblyScript program(script);
+
+const auto result = program.execute(R"(
+alloc(newmem1, 0x100)
+alloc(newmem2, 0x100)
+
+newmem1:
+  ret
+
+loopbegin:
+  jmp loopbegin
+
+newmem2:
+  ret
+
+game.exe+0x100:
+  jmp newmem2
+)");
+```
+
+Current behavior:
+
+- `alloc(...)` and `globalAlloc(...)` directives create names before later segment headers are resolved
+- a line like `newmem1:` starts a new chunk only if `newmem1` already resolves at that point
+- a brand-new line like `loopbegin:` inside an active chunk stays an internal assembler label
+- each resulting chunk is assembled with its own `TextAssembler`
+- implicit assembler labels still do not become persistent script labels
+
+Supported script directives today:
+
+- `alloc(name[, size[, nearAddress]])`
+- `globalAlloc(name[, size[, nearAddress]])`
+- `dealloc(name)`
+- `registerSymbol(name)`
+- `unregisterSymbol(name)`
+
+If `size` is omitted for `alloc(...)` or `globalAlloc(...)`, the current default is `0x1000`.
+
+## 10. Change Protection
 
 ```cpp
 session->fullAccess(address, size);
@@ -227,7 +272,7 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
-## 10. Copy Bytes With `readMem`
+## 11. Copy Bytes With `readMem`
 
 `readMem` is the CE-style byte-copy helper:
 
@@ -242,7 +287,7 @@ In `hexengine`, this means:
 - temporarily make the destination writable if needed
 - restore the previous protection after the write
 
-## 11. Execute Remote Code
+## 12. Execute Remote Code
 
 `executeCode` is the engine-level "run this entrypoint inside the target process" operation:
 
@@ -257,7 +302,7 @@ At the common engine interface level, this only means:
 
 The backend decides how to do that. In the Win32 backend, this is implemented with `CreateRemoteThread`.
 
-## 12. Apply And Restore Patches
+## 13. Apply And Restore Patches
 
 Byte patch:
 

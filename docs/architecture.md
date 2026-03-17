@@ -29,6 +29,7 @@ caller
           -> backend::IProcessBackend
               -> backends::win32::Win32ProcessBackend
           -> engine::ScriptContext (optional, per CE script)
+          -> engine::AssemblyScript (optional, per CE-like multi-target script)
           -> engine::TextAssembler (optional, per assembly pass)
               -> engine::RemoteAssembler
           -> engine::ProcessScanner
@@ -129,6 +130,7 @@ Files:
 - [`../include/hexengine/engine/allocation_repository.hpp`](../include/hexengine/engine/allocation_repository.hpp)
 - [`../include/hexengine/engine/allocation_service.hpp`](../include/hexengine/engine/allocation_service.hpp)
 - [`../include/hexengine/engine/script_context.hpp`](../include/hexengine/engine/script_context.hpp)
+- [`../include/hexengine/engine/assembly_script.hpp`](../include/hexengine/engine/assembly_script.hpp)
 - [`../include/hexengine/engine/text_assembler.hpp`](../include/hexengine/engine/text_assembler.hpp)
 - [`../include/hexengine/engine/remote_assembler.hpp`](../include/hexengine/engine/remote_assembler.hpp)
 - [`../include/hexengine/engine/patch_repository.hpp`](../include/hexengine/engine/patch_repository.hpp)
@@ -146,6 +148,7 @@ This is where reusable engine behavior starts:
 - execute target code through the backend
 - manage session-global allocations
 - manage script-local allocations and labels
+- scan and schedule CE-like multi-target assembly scripts
 - assemble text into remote memory through AsmTK + AsmJit
 - manage named patches
 - expose a single session object to callers
@@ -354,6 +357,23 @@ caller
 ```
 
 Implicit labels declared in the current text block remain assembler-local and do not become script labels automatically.
+
+### CE-Like Multi-Target Assembly Scripts
+
+```text
+caller
+  -> AssemblyScript(script)
+      -> scan directives and lines in source order
+      -> execute directives such as alloc/globalAlloc/registerSymbol
+      -> when `expr:` already resolves:
+           -> flush current chunk
+           -> start a new TextAssembler at that address
+      -> when `label:` does not yet resolve:
+           -> keep it as an internal assembler label in the current chunk
+      -> flush each chunk through TextAssembler / RemoteAssembler
+```
+
+This keeps the high-level scheduler separate from the single-base AsmJit emitter.
 
 ## What To Read Next
 

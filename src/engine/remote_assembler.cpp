@@ -1,21 +1,16 @@
 #include "hexengine/engine/remote_assembler.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
 namespace hexengine::engine {
 
 RemoteAssembler::RemoteAssembler(backend::IProcessBackend& process,
-                                 core::Address baseAddress,
-                                 std::size_t caveSizeBytes)
+                                 core::Address baseAddress)
     : process_(process),
-      baseAddress_(baseAddress),
-      caveSizeBytes_(caveSizeBytes) {
-    if (caveSizeBytes == 0) {
-        throw std::invalid_argument("RemoteAssembler: cave size must be greater than zero");
-    }
-
+      baseAddress_(baseAddress) {
     const auto arch = (process.pointerSize() == 4)
         ? asmjit::Arch::kX86
         : asmjit::Arch::kX64;
@@ -36,6 +31,16 @@ RemoteAssembler::RemoteAssembler(backend::IProcessBackend& process,
     }
 }
 
+RemoteAssembler::RemoteAssembler(backend::IProcessBackend& process,
+                                 core::Address baseAddress,
+                                 std::size_t caveSizeBytes)
+    : RemoteAssembler(process, baseAddress) {
+    if (caveSizeBytes == 0) {
+        throw std::invalid_argument("RemoteAssembler: cave size must be greater than zero");
+    }
+    caveSizeBytes_ = caveSizeBytes;
+}
+
 asmjit::x86::Assembler& RemoteAssembler::assembler() noexcept {
     return assembler_;
 }
@@ -45,7 +50,7 @@ std::size_t RemoteAssembler::offset() const noexcept {
 }
 
 std::size_t RemoteAssembler::capacity() const noexcept {
-    return caveSizeBytes_;
+    return caveSizeBytes_.value_or(std::numeric_limits<std::size_t>::max());
 }
 
 core::Address RemoteAssembler::currentAddress() const noexcept {
@@ -110,10 +115,10 @@ std::vector<std::string> RemoteAssembler::unresolvedLabelNames() const {
 std::size_t RemoteAssembler::flush() {
     const auto currentOffset = assembler_.offset();
 
-    if (currentOffset > caveSizeBytes_) {
+    if (caveSizeBytes_.has_value() && currentOffset > *caveSizeBytes_) {
         throw std::runtime_error(
             "RemoteAssembler: emitted " + std::to_string(currentOffset) +
-            " bytes but the code cave is only " + std::to_string(caveSizeBytes_) +
+            " bytes but the code cave is only " + std::to_string(*caveSizeBytes_) +
             " bytes");
     }
 

@@ -20,6 +20,7 @@ It currently verifies:
 - AOB scanning, including region-limited scans
 - symbol registration
 - allocation and deallocation
+- CE-like multi-target `AssemblyScript` execution against the real Win32 backend
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
 - `readMem` copy into a read-only destination with protection restore
@@ -102,6 +103,26 @@ The important current rule validated here is:
 
 - implicit labels declared only inside assembly text remain private to that assembly pass
 - they do not become persistent script labels automatically
+
+## Assembly Script Test
+
+File:
+
+- [`../tests/assembly_script_test.cpp`](../tests/assembly_script_test.cpp)
+
+This is the focused CE-like scheduler test for:
+
+- `alloc(...)` / `globalAlloc(...)` / `dealloc(...)` directives in scanned script text
+- `registerSymbol(...)` / `unregisterSymbol(...)` directives in scanned script text
+- splitting a script into multiple assembly chunks when a `label:` or `expr:` line already resolves
+- keeping brand-new labels as internal assembler labels in the current chunk
+- assembling directly to raw patch sites like `game.exe+0x100:`
+- failure modes such as:
+  - instructions before any current address exists
+  - internal labels before any current address exists
+  - unresolved complex target expressions
+  - parse failures inside a chunk
+  - unresolved internal assembler labels at flush time
 
 ## Scan Benchmark
 

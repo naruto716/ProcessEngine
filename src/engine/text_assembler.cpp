@@ -36,6 +36,13 @@ TextAssembler::TextAssembler(ScriptContext& script, core::Address baseAddress, s
     parser_->set_unknown_symbol_handler(resolveUnknownSymbolThunk, this);
 }
 
+TextAssembler::TextAssembler(ScriptContext& script, core::Address baseAddress)
+    : script_(script),
+      remote_(script.session().process(), baseAddress),
+      parser_(std::make_unique<asmtk::AsmParser>(&remote_.assembler())) {
+    parser_->set_unknown_symbol_handler(resolveUnknownSymbolThunk, this);
+}
+
 TextAssembler::TextAssembler(ScriptContext& script, const AllocationRecord& target)
     : TextAssembler(script, target.address, target.size) {
 }

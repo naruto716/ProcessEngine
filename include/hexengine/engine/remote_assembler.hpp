@@ -16,6 +16,11 @@ namespace hexengine::engine {
 
 class RemoteAssembler {
 public:
+    /// Create an assembler targeting a remote address with no capacity guard.
+    /// Useful for direct patch sites where the caller intentionally controls how much code is emitted.
+    RemoteAssembler(backend::IProcessBackend& process,
+                    core::Address baseAddress);
+
     /// Create an assembler targeting a code cave at \p baseAddress in the remote process.
     /// The architecture (32-bit or 64-bit) is inferred from the backend's pointer size.
     RemoteAssembler(backend::IProcessBackend& process,
@@ -28,7 +33,7 @@ public:
     /// Number of bytes emitted so far.
     [[nodiscard]] std::size_t offset() const noexcept;
 
-    /// Maximum number of bytes the code cave can hold.
+    /// Maximum number of bytes the code cave can hold, or `max()` if no guard is active.
     [[nodiscard]] std::size_t capacity() const noexcept;
 
     /// Remote address corresponding to the current emit position.
@@ -54,7 +59,7 @@ public:
 private:
     backend::IProcessBackend& process_;
     core::Address baseAddress_;
-    std::size_t caveSizeBytes_;
+    std::optional<std::size_t> caveSizeBytes_;
     std::size_t flushedOffset_ = 0;
 
     asmjit::CodeHolder code_;

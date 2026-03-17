@@ -47,6 +47,7 @@ public:
         bool persistent = true);
     [[nodiscard]] bool unregisterSymbol(std::string_view name);
     [[nodiscard]] std::optional<SymbolRecord> resolveSymbol(std::string_view name) const;
+    [[nodiscard]] std::optional<AllocationRecord> findGlobalAllocation(std::string_view name) const;
 
     [[nodiscard]] AllocationRecord globalAlloc(const AllocationRequest& request);
     [[nodiscard]] bool deallocate(std::string_view name);

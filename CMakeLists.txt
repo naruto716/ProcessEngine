@@ -47,6 +47,7 @@ endif()
 add_library(hexengine_engine
     src/backends/win32/win32_process_backend.cpp
     src/engine/address_resolver.cpp
+    src/engine/assembly_script.cpp
     src/core/pattern.cpp
     src/engine/allocation_repository.cpp
     src/engine/allocation_service.cpp
@@ -88,6 +89,8 @@ target_include_directories(ce_memory_test_target PRIVATE include tests)
 
 add_executable(ce_memory_integration_test
     tests/memory_integration_test.cpp
+    tests/memory_integration_cases.cpp
+    tests/memory_integration_support.cpp
 )
 
 target_compile_features(ce_memory_integration_test PRIVATE cxx_std_20)
@@ -178,4 +181,17 @@ target_link_libraries(ce_text_assembler_test PRIVATE hexengine_engine)
 add_test(
     NAME ce_text_assembler
     COMMAND ce_text_assembler_test
+)
+
+add_executable(ce_assembly_script_test
+    tests/assembly_script_test.cpp
+)
+
+target_compile_features(ce_assembly_script_test PRIVATE cxx_std_20)
+target_include_directories(ce_assembly_script_test PRIVATE include tests)
+target_link_libraries(ce_assembly_script_test PRIVATE hexengine_engine)
+
+add_test(
+    NAME ce_assembly_script
+    COMMAND ce_assembly_script_test
 )
