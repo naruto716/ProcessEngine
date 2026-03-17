@@ -21,6 +21,7 @@ It currently verifies:
 - symbol registration
 - allocation and deallocation
 - CE-like multi-target `AssemblyScript` execution against the real Win32 backend
+- manual hook-style flow against the real backend: scan, near alloc, cave assembly, hook-site jump patch, and cleanup
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
 - `readMem` copy into a read-only destination with protection restore
@@ -117,12 +118,14 @@ This is the focused CE-like scheduler test for:
 - splitting a script into multiple assembly chunks when a `label:` or `expr:` line already resolves
 - keeping brand-new labels as internal assembler labels in the current chunk
 - assembling directly to raw patch sites like `game.exe+0x100:`
+- manual hook-style scripts with explicit `returnhere` labels and jump-target verification
 - failure modes such as:
   - instructions before any current address exists
   - internal labels before any current address exists
   - unresolved complex target expressions
   - parse failures inside a chunk
   - unresolved internal assembler labels at flush time
+  - unbound explicit return labels in a manual hook script
 
 ## Scan Benchmark
 

@@ -9,6 +9,7 @@
 #include "hexengine/engine/engine_session.hpp"
 #include "hexengine/engine/script_context.hpp"
 #include "support/fake_process_backend.hpp"
+#include "support/jump_decode.hpp"
 
 namespace {
 
@@ -168,6 +169,78 @@ registerSymbol(newmem)
         const auto published = session.resolveSymbol("newmem");
         expect(published.has_value(), "registerSymbol(newmem) should publish the alloc-backed name");
         expect(published->kind == SymbolKind::Allocation, "registerSymbol(newmem) should preserve allocation kind");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->addModule("game.exe", 0x1400'0000ull);
+
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.hook");
+        AssemblyScript program(script);
+
+        const auto hookAddress = session.resolveAddress("game.exe+0x200");
+        script.declareLabel("returnhere");
+        script.bindLabel("returnhere", hookAddress + 5);
+
+        const auto result = program.execute(R"(
+alloc(newmem, 0x100, game.exe+0x200)
+registerSymbol(newmem)
+
+newmem:
+  nop
+  jmp returnhere
+
+game.exe+0x200:
+  jmp newmem
+)");
+
+        expect(result.segments.size() == 2, "Manual hook script should emit a cave segment and a patch segment");
+
+        const auto newmem = script.findLocalAllocation("newmem");
+        expect(newmem.has_value(), "Hook script should create the cave allocation");
+        const auto distance = hookAddress >= newmem->address ? hookAddress - newmem->address : newmem->address - hookAddress;
+        expect(distance <= 0x8000'0000ull, "Hook cave should be allocated within rel32 range");
+
+        const auto published = session.resolveSymbol("newmem");
+        expect(published.has_value(), "registerSymbol(newmem) should publish the cave name");
+        expect(published->address == newmem->address, "Published hook cave symbol should point at the cave");
+
+        const auto caveBytes = fake->read(newmem->address, result.segments[0].emittedBytes);
+        expect(caveBytes[0] == std::byte{0x90}, "Hook cave should begin with the manual preserved instruction");
+        const auto caveJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            newmem->address + 1,
+            std::span<const std::byte>(caveBytes).subspan(1));
+        expect(caveJumpTarget.has_value(), "jmp returnhere should decode as a relative control transfer");
+        expect(*caveJumpTarget == hookAddress + 5, "Cave jump should return to the post-hook address");
+
+        const auto hookBytes = fake->read(hookAddress, result.segments[1].emittedBytes);
+        const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            hookAddress,
+            std::span<const std::byte>(hookBytes));
+        expect(hookJumpTarget.has_value(), "Hook site should contain a decodable jump");
+        expect(*hookJumpTarget == newmem->address, "Hook site jump should land at the cave allocation");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->addModule("game.exe", 0x1400'0000ull);
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.hook.unbound.return");
+        AssemblyScript program(script);
+
+        script.declareLabel("returnhere");
+        expectThrows(
+            [&] {
+                (void)program.execute(R"(
+alloc(newmem, 0x100, game.exe+0x200)
+newmem:
+  jmp returnhere
+)");
+            },
+            "script label is not bound");
     }
 
     {

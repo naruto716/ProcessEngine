@@ -18,6 +18,7 @@
 #include "hexengine/engine/win32_engine_factory.hpp"
 #include "memory_integration_support.hpp"
 #include "memory_test_fixture.hpp"
+#include "support/jump_decode.hpp"
 
 namespace hexengine::tests::integration {
 namespace {
@@ -447,6 +448,76 @@ integration.script.bad:
     expect(engine.destroyScriptContext("integration.assembly.failure"), "Failed assembly-script context destroy failed");
 }
 
+void verifyManualHookPipeline(IntegrationContext& context) {
+    using namespace hexengine::core;
+    using namespace hexengine::engine;
+
+    auto& process = *context.process;
+    auto& engine = *context.engine;
+    const auto& manifest = context.manifest;
+    const auto& mainModule = context.mainModule;
+
+    const auto hits = engine.aobScanModule(mainModule.name, hexengine::tests::kModulePatternWildcardText);
+    expect(containsAddress(hits, manifest.modulePatternAddress), "Hook pipeline scan should find the module pattern");
+
+    const auto hookAddress = manifest.modulePatternAddress;
+    const auto originalHookBytes = process.read(hookAddress, 5);
+    (void)engine.fullAccess(hookAddress, 16);
+
+    auto& hookScript = engine.createScriptContext("integration.manual.hook");
+    hookScript.declareLabel("returnhere");
+    hookScript.bindLabel("returnhere", hookAddress + 5);
+
+    AssemblyScript program(hookScript);
+
+    std::ostringstream hookExpression;
+    hookExpression << mainModule.name << "+0x" << std::hex << (hookAddress - mainModule.base);
+
+    const auto result = program.execute([&] {
+        std::ostringstream scriptSource;
+        scriptSource << "alloc(integration.hook.cave, 0x100, " << hookExpression.str() << ")\n"
+                     << "registerSymbol(integration.hook.cave)\n"
+                     << '\n'
+                     << "integration.hook.cave:\n"
+                     << "  nop\n"
+                     << "  jmp returnhere\n"
+                     << '\n'
+                     << hookExpression.str() << ":\n"
+                     << "  jmp integration.hook.cave\n";
+        return scriptSource.str();
+    }());
+
+    expect(result.segments.size() == 2, "Manual hook pipeline should emit one cave and one hook-site segment");
+
+    const auto cave = hookScript.findLocalAllocation("integration.hook.cave");
+    expect(cave.has_value(), "Manual hook pipeline should create the hook cave");
+    expect(distance(cave->address, hookAddress) <= 0x8000'0000ull, "Hook cave should remain within rel32 jump range");
+
+    const auto published = engine.resolveSymbol("integration.hook.cave");
+    expect(published.has_value(), "Manual hook pipeline should be able to publish the cave symbol");
+    expect(published->address == cave->address, "Published hook cave symbol should point at the cave address");
+
+    const auto caveBytes = process.read(cave->address, result.segments[0].emittedBytes);
+    expect(caveBytes[0] == std::byte{0x90}, "Hook cave should preserve the manual instruction payload");
+    const auto caveJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+        cave->address + 1,
+        std::span<const std::byte>(caveBytes).subspan(1));
+    expect(caveJumpTarget.has_value(), "Hook cave should end with a decodable jump back");
+    expect(*caveJumpTarget == hookAddress + 5, "Hook cave should jump back to the post-hook address");
+
+    const auto patchedHookBytes = process.read(hookAddress, result.segments[1].emittedBytes);
+    const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+        hookAddress,
+        std::span<const std::byte>(patchedHookBytes));
+    expect(hookJumpTarget.has_value(), "Hook site should contain a decodable jump to the cave");
+    expect(*hookJumpTarget == cave->address, "Hook site jump should target the cave");
+
+    process.write(hookAddress, originalHookBytes);
+    expect(hookScript.dealloc("integration.hook.cave"), "Manual hook pipeline should deallocate the hook cave");
+    expect(!engine.resolveSymbol("integration.hook.cave").has_value(), "Deallocating the hook cave should unregister the linked symbol");
+    expect(engine.destroyScriptContext("integration.manual.hook"), "Manual hook script context destroy failed");
+}
+
 void verifyGlobalAllocationLifecycle(IntegrationContext& context) {
     using namespace hexengine::core;
     using namespace hexengine::engine;
@@ -488,6 +559,7 @@ void runMemoryIntegration(const fs::path& targetPath) {
     verifyScriptContextLifecycle(context);
     verifyRuntimeAllocationAndPatchFlow(context);
     verifyAssemblyScriptFlow(context);
+    verifyManualHookPipeline(context);
     verifyGlobalAllocationLifecycle(context);
 }
 
