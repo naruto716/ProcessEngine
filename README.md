@@ -24,14 +24,17 @@ The old Visual Studio install was the broken one. The current 2026 install is us
 - `CMakeLists.txt`: the main CMake project file
 - `CMakePresets.json`: named configure/build presets for both MSVC and MinGW
 - `docs/README.md`: wiki home for the engine docs
+- `docs/lua.md`: CE-style Lua runtime and timer model
 - `docs/*.md`: usage, architecture, hooks, pointers, backend, and testing guides
 - `include/hexengine/core/*`: engine-neutral value types and pattern parsing
 - `include/hexengine/backend/*`: backend interfaces
 - `include/hexengine/backends/win32/*`: the current Win32 user-mode backend
 - `include/hexengine/engine/*`: session, scanner, symbol, and allocation services
+- `include/hexengine/lua/*`: CE-style Lua runtime facade
 - `src/backends/win32/*`: Win32 backend implementation
 - `src/core/*`: core implementation such as AOB pattern parsing
 - `src/engine/*`: reusable engine services
+- `src/lua/*`: Lua embedding, CE-style globals, and timer runtime
 - `src/main.cpp`: a smoke test for the memory layer
 - `scripts/enter-msvc-env.ps1`: loads the Visual Studio developer environment into the current PowerShell session
 - `scripts/check-msvc-env.ps1`: checks `cl` and Visual Studio's bundled CMake
@@ -121,6 +124,7 @@ The project now builds the `hexengine_engine` library. The memory subsystem is s
 - `hexengine::engine::ScriptContext`: persistent CE-style local script scope for local alloc names, labels, and symbols shared across related scripts such as enable/disable
 - `hexengine::engine::AssemblyScript`: CE-like multi-target assembly scheduler built on top of `ScriptContext` and `TextAssembler`
 - `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services
+- `hexengine::lua::LuaRuntime`: a CE-shaped Lua layer with script-scoped Lua globals, typed memory helpers, timers, and `autoAssemble(...)`
 - `hexengine::engine::IEngineFactory`: abstract factory seam for engine session construction
 - `hexengine::engine::Win32EngineFactory`: the current concrete factory for Win32-backed `EngineSession` instances
 
@@ -140,6 +144,13 @@ The current engine can also build **manual CE-style hooks** with:
 - multi-target assembly through `AssemblyScript`
 
 Hook installation is still manual. The engine does not yet do automatic overwrite-length discovery, relocation, or trampoline synthesis for you.
+
+There is now also a CE-style Lua surface above the engine:
+
+- flat CE-named globals such as `getAddress`, `readQword`, `writeWord`, `AOBScan`, and `autoAssemble`
+- one persistent Lua environment per script id
+- a dedicated runtime thread that serializes script execution and timer callbacks
+- `createTimer(...)` support
 
 ## Running tests
 
@@ -212,15 +223,10 @@ Build MSVC release:
 
 ## Next step for your pipeline
 
-Once this basic scaffold is working, the next practical step is to add your first real dependencies:
+The current runtime foundation already includes:
 
-- Lua
-- AsmJit
-- a small parser or translator layer for AA script fragments
+- AsmJit + AsmTK for remote code emission
+- a CE-like AA scheduler
+- a CE-shaped Lua layer for orchestration
 
-At that point we can either:
-
-1. keep using plain CMake with `FetchContent`, or
-2. switch to a package manager such as `vcpkg` for dependencies
-
-For your case, plain CMake first is the cleaner learning path. Since you are targeting Cheat Engine and Windows-specific low-level work, MSVC is probably the better default compiler now that the new Visual Studio install is healthy.
+The next practical step after this is no longer “add Lua”. It is deciding which higher-level trainer features you want to expose on top of the current engine and Lua runtime.

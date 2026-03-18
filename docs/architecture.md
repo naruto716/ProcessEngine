@@ -6,7 +6,7 @@ This page is the high-level map of `hexengine`.
 
 ## Mental Model
 
-Think of the project as 4 layers:
+Think of the project as 5 layers:
 
 1. `core`
 - neutral value types and pattern parsing
@@ -20,10 +20,14 @@ Think of the project as 4 layers:
 4. `engine`
 - session-level services built on top of a backend
 
+5. `lua`
+- CE-style scripting and timers above the engine
+
 At runtime, the stack looks like this:
 
 ```text
 caller
+  -> lua::LuaRuntime (optional)
   -> engine::Win32EngineFactory
       -> engine::EngineSession
           -> backend::IProcessBackend
@@ -40,6 +44,8 @@ caller
           -> engine::AllocationService
           -> engine::PatchRepository
           -> engine::PatchService
+      -> one persistent Lua environment per script id
+      -> one Lua runtime thread for script execution and timers
 ```
 
 Relevant code:
@@ -63,6 +69,7 @@ That is why:
 - session behavior lives in `EngineSession`
 - scanners and pointer walkers live above the backend
 - state lives in repositories, not in the raw backend
+- the Lua layer is kept above the engine instead of mixing Lua ownership into `ScriptContext`
 
 ## Layer Summary
 
@@ -152,6 +159,22 @@ This is where reusable engine behavior starts:
 - assemble text into remote memory through AsmTK + AsmJit
 - manage named patches
 - expose a single session object to callers
+
+### `lua`
+
+Files:
+
+- [`../include/hexengine/lua/lua_runtime.hpp`](../include/hexengine/lua/lua_runtime.hpp)
+- [`../src/lua/lua_runtime.cpp`](../src/lua/lua_runtime.cpp)
+
+This layer provides:
+
+- CE-style Lua global names
+- one persistent Lua environment per script id
+- one hidden engine-side script context for global Lua runs
+- timer scheduling
+- serialized Lua execution on one runtime thread
+- `autoAssemble(...)` bridged into `AssemblyScript`
 
 ## Name Ownership Model
 
@@ -392,6 +415,31 @@ caller
 ```
 
 This is the currently supported hook model.
+
+### Lua Script Execution
+
+```text
+caller
+  -> LuaRuntime::runScript(scriptId, source)
+      -> create/reuse Lua script environment for scriptId
+      -> create/reuse EngineSession::ScriptContext(scriptId)
+      -> run chunk on the Lua runtime thread
+      -> CE-style globals dispatch into:
+           - ScriptContext
+           - EngineSession
+           - AssemblyScript
+```
+
+Timer callbacks run through the same Lua runtime thread:
+
+```text
+runtime thread
+  -> due timer
+      -> restore owner script id
+      -> invoke OnTimer callback
+      -> callback uses the same CE-style globals
+      -> callback sees the same script-scoped Lua globals
+```
 
 What is intentionally not in that flow yet:
 

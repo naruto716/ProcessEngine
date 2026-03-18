@@ -16,6 +16,7 @@
 #include "hexengine/engine/assembly_script.hpp"
 #include "hexengine/engine/script_context.hpp"
 #include "hexengine/engine/win32_engine_factory.hpp"
+#include "hexengine/lua/lua_runtime.hpp"
 #include "memory_integration_support.hpp"
 #include "memory_test_fixture.hpp"
 #include "support/jump_decode.hpp"
@@ -561,6 +562,85 @@ void verifyAssemblyScriptCreateThread(IntegrationContext& context) {
     expect(engine.destroyScriptContext("integration.create_thread"), "createThread integration context destroy failed");
 }
 
+void verifyLuaRuntimeFlow(IntegrationContext& context) {
+    using namespace hexengine::engine;
+
+    auto& process = *context.process;
+    auto& engine = *context.engine;
+    const auto& manifest = context.manifest;
+    const auto& mainModule = context.mainModule;
+
+    hexengine::lua::LuaRuntime lua(engine);
+
+    const auto hookAddress = manifest.modulePatternAddress;
+    const auto originalHookBytes = process.read(hookAddress, 8);
+
+    std::ostringstream scriptSource;
+    scriptSource << "counter = (counter or 0) + 1\n"
+                 << "local ok, err = autoAssemble([[\n"
+                 << "aobScanModule(integration.lua.hook, " << mainModule.name << ", " << hexengine::tests::kModulePatternWildcardText << ")\n"
+                 << "alloc(integration.lua.cave, 0x100, integration.lua.hook)\n"
+                 << "label(returnhere)\n"
+                 << "registerSymbol(integration.lua.cave)\n"
+                 << "\n"
+                 << "integration.lua.cave:\n"
+                 << "  nop\n"
+                 << "  jmp returnhere\n"
+                 << "\n"
+                 << "integration.lua.hook:\n"
+                 << "  jmp integration.lua.cave\n"
+                 << "  nop\n"
+                 << "  nop\n"
+                 << "returnhere:\n"
+                 << "]])\n"
+                 << "if not ok then error(err) end\n"
+                 << "writeQword(" << manifest.writableBufferAddress << ", 0x1122334455667788)\n"
+                 << "return counter, readQword(" << manifest.writableBufferAddress << "), getAddress('integration.lua.cave'), getAddress('returnhere')\n";
+
+    const auto result = lua.runScript("integration.lua.hook", scriptSource.str(), "integration.lua.hook");
+    expect(result.values.size() == 4, "Lua hook integration script should return four values");
+
+    const auto runCount = std::get<std::int64_t>(result.values[0]);
+    const auto qword = static_cast<std::uint64_t>(std::get<std::int64_t>(result.values[1]));
+    const auto caveAddress = static_cast<std::uintptr_t>(std::get<std::int64_t>(result.values[2]));
+    const auto returnhere = static_cast<std::uintptr_t>(std::get<std::int64_t>(result.values[3]));
+
+    expect(runCount == 1, "Lua script globals should persist per script and begin at one");
+    expect(qword == 0x1122334455667788ull, "Lua writeQword/readQword should round-trip through the real backend");
+    expect(returnhere > hookAddress, "Lua hook should bind the explicit return label after the patch chunk");
+
+    const auto caveBytes = process.read(caveAddress, 6);
+    expect(caveBytes[0] == std::byte{0x90}, "Lua hook cave should begin with the preserved NOP");
+    const auto caveJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+        caveAddress + 1,
+        std::span<const std::byte>(caveBytes).subspan(1));
+    expect(caveJumpTarget.has_value() && *caveJumpTarget == returnhere, "Lua hook cave should jump to returnhere");
+
+    const auto patchedHookBytes = process.read(hookAddress, 5);
+    const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(hookAddress, patchedHookBytes);
+    expect(hookJumpTarget.has_value() && *hookJumpTarget == caveAddress, "Lua hook patch site should jump into the cave");
+    expect(std::get<std::int64_t>(lua.runScript("integration.lua.hook", "return counter", "integration.lua.counter").values.front()) == 1, "Lua script globals should persist across runs with the same script id");
+
+    process.writeValue<std::byte>(manifest.writableBufferAddress, std::byte{0x00});
+    (void)lua.runScript("integration.lua.timer", [&] {
+        std::ostringstream timerScript;
+        timerScript << "fired = false\n"
+                    << "createTimer(15, function()\n"
+                    << "  writeBytes(" << manifest.writableBufferAddress << ", 0x5C)\n"
+                    << "  fired = true\n"
+                    << "end)\n"
+                    << "return fired\n";
+        return timerScript.str();
+    }(), "integration.lua.timer");
+    waitForByteValue(process, manifest.writableBufferAddress, std::byte{0x5C}, 2s);
+    expect(std::get<bool>(lua.runScript("integration.lua.timer", "return fired", "integration.lua.timer.state").values.front()), "Lua one-shot timer should update script state after firing");
+
+    process.write(hookAddress, originalHookBytes);
+    expect(lua.destroyScript("integration.lua.hook"), "Lua hook script should be destroyable");
+    expect(!engine.resolveSymbol("integration.lua.cave").has_value(), "Destroying the Lua hook script should remove linked cave symbols");
+    expect(lua.destroyScript("integration.lua.timer"), "Lua timer script should be destroyable");
+}
+
 void verifyGlobalAllocationLifecycle(IntegrationContext& context) {
     using namespace hexengine::core;
     using namespace hexengine::engine;
@@ -604,6 +684,7 @@ void runMemoryIntegration(const fs::path& targetPath) {
     verifyAssemblyScriptFlow(context);
     verifyManualHookPipeline(context);
     verifyAssemblyScriptCreateThread(context);
+    verifyLuaRuntimeFlow(context);
     verifyGlobalAllocationLifecycle(context);
 }
 

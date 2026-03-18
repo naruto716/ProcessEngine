@@ -1,6 +1,6 @@
 # Usage
 
-See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md)
+See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Lua Runtime](lua.md)
 
 This page shows the normal way to use `hexengine` from native application code.
 
@@ -493,3 +493,83 @@ int main() {
     return 0;
 }
 ```
+
+## 17. Use The CE-Style Lua Runtime
+
+The engine now also has a CE-shaped Lua layer:
+
+```cpp
+#include "hexengine/lua/lua_runtime.hpp"
+
+hexengine::lua::LuaRuntime lua(*session);
+
+const auto first = lua.runScript("feature.hp", R"(
+counter = (counter or 0) + 1
+return counter
+)");
+
+const auto second = lua.runScript("feature.hp", "return counter");
+```
+
+Current Lua behavior:
+
+- plain Lua globals are persistent per script id
+- different script ids do not share those globals
+- CE-style globals such as `getAddress`, `readQword`, `writeWord`, `AOBScan`, and `autoAssemble` are available directly in Lua
+- all Lua execution and timer callbacks are serialized on one runtime thread
+
+Example hook from Lua:
+
+```cpp
+const auto result = lua.runScript("feature.hp", R"(
+local ok, err = autoAssemble([[
+aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
+alloc(newmem, 0x100, injection)
+label(returnhere)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+  nop
+  nop
+returnhere:
+]])
+
+if not ok then
+  error(err)
+end
+
+return getAddress("newmem"), getAddress("returnhere")
+)");
+```
+
+Example typed write:
+
+```cpp
+lua.runScript("feature.hp", R"(
+writeWord("player_base+0x10", 500)
+writeQword("player_base+0x18", 0x1122334455667788)
+)");
+```
+
+Example timer:
+
+```cpp
+lua.runScript("feature.hp", R"(
+count = 0
+timer = createTimer(false)
+timer.Interval = 25
+timer.OnTimer = function(sender)
+  count = count + 1
+  if count >= 5 then
+    sender.Enabled = false
+  end
+end
+timer.Enabled = true
+)");
+```
+
+For the full Lua surface and runtime behavior, see [Lua Runtime](lua.md).

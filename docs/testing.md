@@ -33,6 +33,7 @@ It currently verifies:
 - template-style pointer resolution
 - CE-style pointer-expression resolution
 - alloc-backed symbol cleanup on local/global deallocation
+- Lua-driven CE-style hooks and timer writes through the real Win32 backend
 
 Run it through `ctest`:
 
@@ -135,6 +136,23 @@ This is the focused CE-like scheduler test for:
   - explicit `label(returnhere)` declarations that are never defined
   - implicit `returnhere:` labels that stay chunk-local and therefore cannot satisfy an earlier cave jump
   - missing AOB scan hits
+
+## Lua Runtime Test
+
+File:
+
+- [`../tests/lua_runtime_test.cpp`](../tests/lua_runtime_test.cpp)
+
+This is the focused CE-style Lua test for:
+
+- script-scoped global persistence per script id
+- isolation between different script ids
+- CE-style typed memory helpers such as `writeWord(...)` and `writeQword(...)`
+- `AOBScan(...)` returning a `StringList`-style object
+- `autoAssemble(...)` using the existing `AssemblyScript` pipeline
+- repeating timers through `createTimer(false)` + `Interval` / `OnTimer` / `Enabled`
+- one-shot `createTimer(interval, callback)` behavior
+- script teardown cancelling timers and dropping script-local Lua state
 
 ## Scan Benchmark
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(CEPipelineTest VERSION 0.1.0 LANGUAGES CXX)
+project(CEPipelineTest VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,12 @@ FetchContent_Declare(
     asmtk
     GIT_REPOSITORY https://github.com/asmjit/asmtk.git
     GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_Declare(
+    lua
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        v5.4.8
     GIT_SHALLOW    TRUE
 )
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
@@ -44,6 +50,53 @@ if (NOT asmtk_POPULATED)
     add_library(asmjit::asmtk ALIAS asmtk)
 endif()
 
+FetchContent_GetProperties(lua)
+if (NOT lua_POPULATED)
+    if (POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_Populate(lua)
+
+    add_library(lua STATIC
+        ${lua_SOURCE_DIR}/lapi.c
+        ${lua_SOURCE_DIR}/lauxlib.c
+        ${lua_SOURCE_DIR}/lbaselib.c
+        ${lua_SOURCE_DIR}/lcode.c
+        ${lua_SOURCE_DIR}/lcorolib.c
+        ${lua_SOURCE_DIR}/lctype.c
+        ${lua_SOURCE_DIR}/ldblib.c
+        ${lua_SOURCE_DIR}/ldebug.c
+        ${lua_SOURCE_DIR}/ldo.c
+        ${lua_SOURCE_DIR}/ldump.c
+        ${lua_SOURCE_DIR}/lfunc.c
+        ${lua_SOURCE_DIR}/lgc.c
+        ${lua_SOURCE_DIR}/linit.c
+        ${lua_SOURCE_DIR}/liolib.c
+        ${lua_SOURCE_DIR}/llex.c
+        ${lua_SOURCE_DIR}/lmathlib.c
+        ${lua_SOURCE_DIR}/lmem.c
+        ${lua_SOURCE_DIR}/lobject.c
+        ${lua_SOURCE_DIR}/lopcodes.c
+        ${lua_SOURCE_DIR}/loadlib.c
+        ${lua_SOURCE_DIR}/loslib.c
+        ${lua_SOURCE_DIR}/lparser.c
+        ${lua_SOURCE_DIR}/lstate.c
+        ${lua_SOURCE_DIR}/lstring.c
+        ${lua_SOURCE_DIR}/lstrlib.c
+        ${lua_SOURCE_DIR}/ltable.c
+        ${lua_SOURCE_DIR}/ltablib.c
+        ${lua_SOURCE_DIR}/ltm.c
+        ${lua_SOURCE_DIR}/lundump.c
+        ${lua_SOURCE_DIR}/lutf8lib.c
+        ${lua_SOURCE_DIR}/lvm.c
+        ${lua_SOURCE_DIR}/lzio.c
+    )
+
+    target_include_directories(lua PUBLIC ${lua_SOURCE_DIR})
+
+    add_library(lua::lua ALIAS lua)
+endif()
+
 add_library(hexengine_engine
     src/backends/win32/win32_process_backend.cpp
     src/engine/address_resolver.cpp
@@ -66,6 +119,14 @@ add_library(hexengine_engine
 target_compile_features(hexengine_engine PUBLIC cxx_std_20)
 target_include_directories(hexengine_engine PUBLIC include)
 target_link_libraries(hexengine_engine PUBLIC asmjit::asmjit asmjit::asmtk)
+
+add_library(hexengine_lua
+    src/lua/lua_runtime.cpp
+)
+
+target_compile_features(hexengine_lua PUBLIC cxx_std_20)
+target_include_directories(hexengine_lua PUBLIC include)
+target_link_libraries(hexengine_lua PUBLIC hexengine_engine lua::lua)
 
 if (WIN32)
     target_compile_definitions(hexengine_engine PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -95,7 +156,7 @@ add_executable(ce_memory_integration_test
 
 target_compile_features(ce_memory_integration_test PRIVATE cxx_std_20)
 target_include_directories(ce_memory_integration_test PRIVATE include tests)
-target_link_libraries(ce_memory_integration_test PRIVATE hexengine_engine)
+target_link_libraries(ce_memory_integration_test PRIVATE hexengine_lua)
 
 add_executable(ce_pattern_test
     tests/pattern_test.cpp
@@ -194,4 +255,17 @@ target_link_libraries(ce_assembly_script_test PRIVATE hexengine_engine)
 add_test(
     NAME ce_assembly_script
     COMMAND ce_assembly_script_test
+)
+
+add_executable(ce_lua_runtime_test
+    tests/lua_runtime_test.cpp
+)
+
+target_compile_features(ce_lua_runtime_test PRIVATE cxx_std_20)
+target_include_directories(ce_lua_runtime_test PRIVATE include tests)
+target_link_libraries(ce_lua_runtime_test PRIVATE hexengine_lua)
+
+add_test(
+    NAME ce_lua_runtime
+    COMMAND ce_lua_runtime_test
 )

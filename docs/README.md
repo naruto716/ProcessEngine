@@ -22,6 +22,9 @@ This folder is the documentation home for `hexengine`.
 - [Assembly And Labels](assembly.md)
   Detailed ownership rules for script labels, global symbols, alloc-backed names, and AsmTK/AsmJit text assembly.
 
+- [Lua Runtime](lua.md)
+  CE-style Lua globals, script-scoped Lua state, timers, and `autoAssemble(...)` on top of the engine.
+
 ## Learn The Codebase
 
 - [Architecture](architecture.md)
@@ -53,7 +56,8 @@ The engine currently covers:
 - target-code execution through `executeCode`
 - named patch management
 - manual CE-style hook construction with scans, near caves, and explicit jump-back labels
+- a CE-shaped Lua runtime with script-scoped globals, typed memory helpers, timers, and `autoAssemble(...)`
 
-The script label system is the engine-side seam for future Lua integration. AsmJit and AsmTK are already used for remote code emission, but implicit assembler labels deliberately stay private to one assembly pass.
+AsmJit and AsmTK are used for remote code emission, but implicit assembler labels deliberately stay private to one assembly pass. The Lua layer sits above that engine behavior; it does not replace it.
 
 The engine does not yet try to be a full Cheat Engine replacement. It is the runtime foundation that future higher-level trainer features can build on.

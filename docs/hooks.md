@@ -12,6 +12,11 @@ The intended use case is:
 
 This is not a "click one address and auto-build a trampoline" system. It is a runtime for the manual hook scripts people normally author first.
 
+You can drive the same hook flow either:
+
+- from native code with `AssemblyScript`
+- or from Lua with `autoAssemble(...)`
+
 ## 1. What Is Supported
 
 You already have the pieces for a normal CE-style hook script:
