@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "write_with_temporary_protection.hpp"
+
 namespace hexengine::engine {
 
 RemoteAssembler::RemoteAssembler(backend::IProcessBackend& process,
@@ -136,7 +138,7 @@ std::size_t RemoteAssembler::flush() {
     const auto remoteAddress = baseAddress_ + flushedOffset_;
 
     const auto* begin = reinterpret_cast<const std::byte*>(buffer.data() + flushedOffset_);
-    process_.write(remoteAddress, std::span<const std::byte>(begin, bytesToWrite));
+    detail::writeWithTemporaryProtection(process_, remoteAddress, std::span<const std::byte>(begin, bytesToWrite));
 
     flushedOffset_ = currentOffset;
     return bytesToWrite;

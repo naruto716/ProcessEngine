@@ -1,6 +1,6 @@
 # Architecture
 
-See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Assembly And Labels](assembly.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
 
 This page is the high-level map of `hexengine`.
 
@@ -374,6 +374,30 @@ caller
 ```
 
 This keeps the high-level scheduler separate from the single-base AsmJit emitter.
+
+### Manual Hook Flow
+
+```text
+caller
+  -> aobScanModule(...) or resolveAddress(...)
+  -> decide overwrite length manually
+  -> ScriptContext::declareLabel("returnhere")
+  -> ScriptContext::bindLabel("returnhere", hookAddress + overwriteLength)
+  -> AssemblyScript(script).execute(...)
+       -> alloc cave near hook site
+       -> assemble cave chunk
+       -> assemble raw hook-site jump chunk
+  -> manual restore of original hook-site bytes on disable
+  -> dealloc cave
+```
+
+This is the currently supported hook model.
+
+What is intentionally not in that flow yet:
+
+- automatic stolen-instruction relocation
+- automatic overwrite-length discovery
+- automatic hook-site patch records for `AssemblyScript`
 
 ## What To Read Next
 

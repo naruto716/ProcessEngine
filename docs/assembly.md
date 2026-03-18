@@ -1,6 +1,6 @@
 # Assembly And Label Model
 
-See also: [Wiki Home](README.md) | [Usage](usage.md) | [Architecture](architecture.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Usage](usage.md) | [Hooks](hooks.md) | [Architecture](architecture.md) | [Testing](testing.md)
 
 This page documents the current `hexengine` model for:
 
@@ -11,6 +11,8 @@ This page documents the current `hexengine` model for:
 - text assembly through AsmTK + AsmJit
 - what persists across enable/disable style flows
 - what deliberately stays private to one assembly pass
+
+For the step-by-step manual hook workflow, see [Hooks](hooks.md).
 
 The short version is:
 
@@ -125,6 +127,20 @@ game.exe+0x100:
   jmp newmem2
 ```
 
+and scan-driven hook source like:
+
+```asm
+aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
+alloc(newmem, 0x100, injection)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+```
+
 ## 1.6. Current-Address Rule
 
 `AssemblyScript` treats `expr:` lines with one rule:
@@ -137,6 +153,7 @@ game.exe+0x100:
 Practical consequences:
 
 - `alloc(newmem1, ...)` followed by `newmem1:` starts a chunk at `newmem1.address`
+- `aobScan(...)`, `aobScanModule(...)`, or `aobScanRegion(...)` can create a script label before a later `label:` line is seen
 - `game.exe+0x100:` starts a chunk at that resolved module-relative address
 - `loopbegin:` inside an active chunk stays an internal AsmTK/AsmJit label
 
@@ -483,6 +500,34 @@ What happens:
 - published symbol kind is `Label`
 - session-wide resolution can now see `returnhere`
 
+### Example F: Scan-driven manual hook with `returnhere`
+
+```cpp
+script.declareLabel("returnhere");
+script.bindLabel("returnhere", hookAddress + 5);
+
+hexengine::engine::AssemblyScript program(script);
+program.execute(R"(
+aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
+alloc(newmem, 0x100, injection)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+)");
+```
+
+Why this works:
+
+- `newmem` is alloc-backed and therefore already resolves before `newmem:` is seen
+- `returnhere` is a persistent script label, so the cave chunk can resolve it
+- `aobScanModule(...)` binds `injection`, so `injection:` starts the hook-site chunk
+- assembled writes use temporary protection changes automatically if needed
+- internal labels inside the cave would still stay private to that chunk
+
 ## 8. Current Limitations
 
 This is the current implemented model, not a final CE-complete lifecycle design.
@@ -496,6 +541,11 @@ Important limitations:
   - `alloc(...)`
   - `globalAlloc(...)`
   - `dealloc(...)`
+  - `aobScan(...)`
+  - `aobScanModule(...)`
+  - `aobScanRegion(...)`
+  - `fullAccess(...)`
+  - `createThread(...)`
   - `registerSymbol(...)`
   - `unregisterSymbol(...)`
 - if you need a persistent name across enable/disable, it must be:

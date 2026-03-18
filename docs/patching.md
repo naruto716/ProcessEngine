@@ -1,6 +1,6 @@
 # Patching
 
-See also: [Wiki Home](README.md) | [Usage](usage.md) | [Architecture](architecture.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Usage](usage.md) | [Hooks](hooks.md) | [Architecture](architecture.md) | [Testing](testing.md)
 
 This page covers the current patch API in `hexengine`.
 
@@ -139,6 +139,9 @@ The current patch layer supports:
 It does not yet support:
 
 - multi-write transactions
-- trampoline hooks
+- hook-site patch tracking for `AssemblyScript`
+- automatic hook installation
 - instruction relocation
 - `reassemble`-style relocation
+
+So if you use `AssemblyScript` to write directly into a hook site, patch restore is still manual. See [Hooks](hooks.md).

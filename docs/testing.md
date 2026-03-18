@@ -1,6 +1,6 @@
 # Testing
 
-See also: [Wiki Home](README.md) | [Getting Started](getting-started.md)
+See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Hooks](hooks.md)
 
 This page explains how the current tests and benchmarks are organized.
 
@@ -21,9 +21,11 @@ It currently verifies:
 - symbol registration
 - allocation and deallocation
 - CE-like multi-target `AssemblyScript` execution against the real Win32 backend
-- manual hook-style flow against the real backend: scan, near alloc, cave assembly, hook-site jump patch, and cleanup
+- manual hook-style flow against the real backend: `aobScanModule(...)`, near alloc, cave assembly, hook-site jump patch, and cleanup without a prior `fullAccess(...)`
+- `createThread(...)` inside `AssemblyScript` against the real Win32 backend
 - byte patch apply/restore
 - NOP patch apply/restore with temporary write access
+- `EngineSession::writeBytes(...)` restoring protection after writing into a read-only region
 - `readMem` copy into a read-only destination with protection restore
 - `executeCode` running a tiny remote stub through the public session API
 - protection changes
@@ -114,11 +116,14 @@ File:
 This is the focused CE-like scheduler test for:
 
 - `alloc(...)` / `globalAlloc(...)` / `dealloc(...)` directives in scanned script text
+- `aobScan(...)` / `aobScanModule(...)` / `aobScanRegion(...)` directives in scanned script text
+- `fullAccess(...)` / `createThread(...)` directives in scanned script text
 - `registerSymbol(...)` / `unregisterSymbol(...)` directives in scanned script text
 - splitting a script into multiple assembly chunks when a `label:` or `expr:` line already resolves
 - keeping brand-new labels as internal assembler labels in the current chunk
 - assembling directly to raw patch sites like `game.exe+0x100:`
-- manual hook-style scripts with explicit `returnhere` labels and jump-target verification
+- scan-driven manual hook scripts with explicit `returnhere` labels and jump-target verification
+- scan-driven manual hook scripts succeeding without `fullAccess(...)`
 - failure modes such as:
   - instructions before any current address exists
   - internal labels before any current address exists
@@ -126,6 +131,7 @@ This is the focused CE-like scheduler test for:
   - parse failures inside a chunk
   - unresolved internal assembler labels at flush time
   - unbound explicit return labels in a manual hook script
+  - missing AOB scan hits
 
 ## Scan Benchmark
 

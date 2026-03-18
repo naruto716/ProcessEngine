@@ -25,6 +25,11 @@ enum class DirectiveKind {
     Alloc,
     GlobalAlloc,
     Dealloc,
+    AobScan,
+    AobScanModule,
+    AobScanRegion,
+    FullAccess,
+    CreateThread,
     RegisterSymbol,
     UnregisterSymbol,
 };
@@ -156,6 +161,16 @@ struct ActiveSegment {
         directive.kind = DirectiveKind::GlobalAlloc;
     } else if (name == "dealloc") {
         directive.kind = DirectiveKind::Dealloc;
+    } else if (name == "aobscan") {
+        directive.kind = DirectiveKind::AobScan;
+    } else if (name == "aobscanmodule") {
+        directive.kind = DirectiveKind::AobScanModule;
+    } else if (name == "aobscanregion") {
+        directive.kind = DirectiveKind::AobScanRegion;
+    } else if (name == "fullaccess") {
+        directive.kind = DirectiveKind::FullAccess;
+    } else if (name == "createthread") {
+        directive.kind = DirectiveKind::CreateThread;
     } else if (name == "registersymbol") {
         directive.kind = DirectiveKind::RegisterSymbol;
     } else if (name == "unregistersymbol") {
@@ -197,6 +212,32 @@ struct ActiveSegment {
 [[nodiscard]] std::size_t resolveSizeArgument(const ScriptContext& script, std::string_view value) {
     const auto resolved = script.resolveAddress(value);
     return static_cast<std::size_t>(resolved);
+}
+
+void bindOrValidateScriptLabel(
+    ScriptContext& script,
+    std::string_view name,
+    core::Address address,
+    std::size_t lineNumber,
+    std::string_view sourceName) {
+    detail::validateUserDefinedName(name, "AssemblyScript label");
+
+    if (script.hasLabel(name)) {
+        if (const auto existing = script.findLabel(name)) {
+            if (*existing != address) {
+                throwLineError(
+                    lineNumber,
+                    std::string(sourceName) + " result for '" + std::string(name) +
+                        "' conflicts with an existing bound label");
+            }
+            return;
+        }
+
+        script.bindLabel(name, address);
+        return;
+    }
+
+    script.bindLabel(name, address);
 }
 
 [[nodiscard]] SegmentTarget resolveSegmentTarget(const ScriptContext& script, std::size_t lineNumber, std::string_view expression) {
@@ -344,6 +385,100 @@ void executeDirective(
             throwLineError(lineNumber, "dealloc could not find '" + directive.args[0] + '\'');
         }
         return;
+
+    case DirectiveKind::AobScan: {
+        if (directive.args.size() != 2) {
+            throwLineError(lineNumber, "aobScan expects exactly 2 arguments");
+        }
+
+        try {
+            const auto hits = script.session().aobScan(directive.args[1]);
+            if (hits.empty()) {
+                throwLineError(lineNumber, "aobScan found no match for '" + directive.args[0] + '\'');
+            }
+
+            bindOrValidateScriptLabel(script, directive.args[0], hits.front(), lineNumber, "aobScan");
+        } catch (const std::exception& exception) {
+            if (std::string_view(exception.what()).find("AssemblyScript: line ") == 0) {
+                throw;
+            }
+            throwLineError(lineNumber, exception.what());
+        }
+        return;
+    }
+
+    case DirectiveKind::AobScanModule: {
+        if (directive.args.size() != 3) {
+            throwLineError(lineNumber, "aobScanModule expects exactly 3 arguments");
+        }
+
+        try {
+            const auto hits = script.session().aobScanModule(directive.args[1], directive.args[2]);
+            if (hits.empty()) {
+                throwLineError(lineNumber, "aobScanModule found no match for '" + directive.args[0] + '\'');
+            }
+
+            bindOrValidateScriptLabel(script, directive.args[0], hits.front(), lineNumber, "aobScanModule");
+        } catch (const std::exception& exception) {
+            if (std::string_view(exception.what()).find("AssemblyScript: line ") == 0) {
+                throw;
+            }
+            throwLineError(lineNumber, exception.what());
+        }
+        return;
+    }
+
+    case DirectiveKind::AobScanRegion: {
+        if (directive.args.size() != 4) {
+            throwLineError(lineNumber, "aobScanRegion expects exactly 4 arguments");
+        }
+
+        try {
+            const auto startAddress = script.resolveAddress(directive.args[1]);
+            const auto stopAddress = script.resolveAddress(directive.args[2]);
+            const auto hits = script.session().aobScanRegion(startAddress, stopAddress, directive.args[3]);
+            if (hits.empty()) {
+                throwLineError(lineNumber, "aobScanRegion found no match for '" + directive.args[0] + '\'');
+            }
+
+            bindOrValidateScriptLabel(script, directive.args[0], hits.front(), lineNumber, "aobScanRegion");
+        } catch (const std::exception& exception) {
+            if (std::string_view(exception.what()).find("AssemblyScript: line ") == 0) {
+                throw;
+            }
+            throwLineError(lineNumber, exception.what());
+        }
+        return;
+    }
+
+    case DirectiveKind::FullAccess: {
+        if (directive.args.size() != 2) {
+            throwLineError(lineNumber, "fullAccess expects exactly 2 arguments");
+        }
+
+        try {
+            const auto address = script.resolveAddress(directive.args[0]);
+            const auto size = resolveSizeArgument(script, directive.args[1]);
+            (void)script.session().fullAccess(address, size);
+        } catch (const std::exception& exception) {
+            throwLineError(lineNumber, exception.what());
+        }
+        return;
+    }
+
+    case DirectiveKind::CreateThread: {
+        if (directive.args.size() != 1) {
+            throwLineError(lineNumber, "createThread expects exactly 1 argument");
+        }
+
+        try {
+            const auto entryAddress = script.resolveAddress(directive.args[0]);
+            script.session().executeCode(entryAddress);
+        } catch (const std::exception& exception) {
+            throwLineError(lineNumber, exception.what());
+        }
+        return;
+    }
 
     case DirectiveKind::RegisterSymbol:
         if (directive.args.size() != 1) {

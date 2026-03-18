@@ -1,7 +1,9 @@
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 
@@ -103,6 +105,10 @@ game.exe+0x100:
         expect(
             patchBytes[0] == std::byte{0xE9} || patchBytes[0] == std::byte{0xEB},
             "jmp newmem2 should encode as a jump opcode");
+
+        expect(script.dealloc("newmem1"), "First multi-target alloc should be deallocatable");
+        expect(script.dealloc("newmem2"), "Second multi-target alloc should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.multi"), "Multi-target script context destroy should succeed");
     }
 
     {
@@ -124,6 +130,8 @@ newmem2:
         expect(result.segments.size() == 1, "A brand-new label inside a segment should remain an internal asm label");
         expect(!script.hasLabel("newmem2"), "Internal asm labels should not leak into script scope");
         expect(result.segments[0].emittedBytes == 2, "Both RET instructions should land in the same segment");
+        expect(script.dealloc("newmem1"), "Internal-label test alloc should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.internal"), "Internal-label script context destroy should succeed");
     }
 
     {
@@ -150,6 +158,8 @@ dealloc(sharedmem)
         expect(!session.resolveSymbol("newmem").has_value(), "unregisterSymbol(newmem) should remove the published symbol");
         expect(!session.resolveSymbol("sharedmem").has_value(), "dealloc(sharedmem) should remove linked global symbols");
         expect(!session.findGlobalAllocation("sharedmem").has_value(), "dealloc(sharedmem) should free the global allocation");
+        expect(script.dealloc("newmem"), "Directive-driven local alloc should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.directives"), "Directive-driven script context destroy should succeed");
     }
 
     {
@@ -169,6 +179,8 @@ registerSymbol(newmem)
         const auto published = session.resolveSymbol("newmem");
         expect(published.has_value(), "registerSymbol(newmem) should publish the alloc-backed name");
         expect(published->kind == SymbolKind::Allocation, "registerSymbol(newmem) should preserve allocation kind");
+        expect(script.dealloc("newmem"), "Published alloc should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.publish"), "Published alloc script context destroy should succeed");
     }
 
     {
@@ -221,6 +233,9 @@ game.exe+0x200:
             std::span<const std::byte>(hookBytes));
         expect(hookJumpTarget.has_value(), "Hook site should contain a decodable jump");
         expect(*hookJumpTarget == newmem->address, "Hook site jump should land at the cave allocation");
+
+        expect(script.dealloc("newmem"), "Hook cave should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.hook"), "Hook script context destroy should succeed");
     }
 
     {
@@ -241,6 +256,140 @@ newmem:
 )");
             },
             "script label is not bound");
+        expect(script.dealloc("newmem"), "Failed hook cave alloc should still be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.hook.unbound.return"), "Failed hook script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.full_access");
+
+        const auto site = script.alloc({
+            .name = "site",
+            .size = 0x40,
+            .protection = hexengine::core::ProtectionFlags::Read,
+        });
+        expect(!session.process().query(site.address)->isWritable(), "Test site should start read-only");
+
+        AssemblyScript program(script);
+        const auto result = program.execute(R"(
+fullAccess(site, 0x40)
+site:
+  ret
+)");
+
+        expect(result.segments.size() == 1, "fullAccess script should still assemble the target segment");
+        const auto region = session.process().query(site.address);
+        expect(region.has_value(), "fullAccess target region should remain queryable");
+        expect(region->isWritable(), "fullAccess should make the target range writable");
+        expect(region->isExecutable(), "fullAccess should make the target range executable");
+
+        expect(script.dealloc("site"), "fullAccess test alloc should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.full_access"), "fullAccess script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        const Address moduleBase = 0x1400'0000ull;
+        const Address hookAddress = moduleBase + 0x220;
+        fake->addModule("game.exe", moduleBase, 0x1000);
+        fake->storeBytes(
+            hookAddress,
+            std::array{
+                std::byte{0x41},
+                std::byte{0x42},
+                std::byte{0x13},
+                std::byte{0x37},
+                std::byte{0xC0},
+                std::byte{0xDE},
+                std::byte{0x7A},
+                std::byte{0xE1},
+            });
+
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.aob.hook");
+        script.declareLabel("returnhere");
+        script.bindLabel("returnhere", hookAddress + 5);
+
+        AssemblyScript program(script);
+        const auto result = program.execute(R"(
+aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
+alloc(newmem, 0x100, injection)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+)");
+
+        expect(result.segments.size() == 2, "AOB-driven hook script should emit cave and hook-site segments");
+        const auto injectionAddress = script.findLabel("injection");
+        expect(injectionAddress.has_value(), "aobScanModule should bind the target name into script scope");
+        expect(*injectionAddress == hookAddress, "aobScanModule should bind the first match address");
+
+        const auto newmem = script.findLocalAllocation("newmem");
+        expect(newmem.has_value(), "alloc(newmem, ..., injection) should create the hook cave");
+        const auto caveBytes = fake->read(newmem->address, result.segments[0].emittedBytes);
+        expect(caveBytes[0] == std::byte{0x90}, "AOB-driven hook cave should begin with NOP");
+
+        const auto patchedHookBytes = fake->read(hookAddress, result.segments[1].emittedBytes);
+        const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            hookAddress,
+            std::span<const std::byte>(patchedHookBytes));
+        expect(hookJumpTarget.has_value(), "AOB-driven hook site should contain a decodable jump");
+        expect(*hookJumpTarget == newmem->address, "AOB-driven hook site should jump into the cave");
+
+        expect(script.dealloc("newmem"), "AOB-driven hook cave should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.aob.hook"), "AOB-driven hook script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->setExecuteCodeHook([&](Address entryAddress) {
+            const auto bytes = fake->read(entryAddress, 1);
+            if (bytes.empty() || bytes[0] != std::byte{0xC3}) {
+                fail("createThread should flush the assembled code before executeCode runs");
+            }
+        });
+
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.create_thread");
+        AssemblyScript program(script);
+
+        const auto result = program.execute(R"(
+alloc(worker, 0x40)
+worker:
+  ret
+createThread(worker)
+)");
+
+        expect(result.segments.size() == 1, "createThread script should only need the worker segment");
+        const auto worker = script.findLocalAllocation("worker");
+        expect(worker.has_value(), "createThread script should allocate the worker code block");
+        expect(fake->executedCodeAddresses().size() == 1, "createThread should call executeCode exactly once");
+        expect(fake->executedCodeAddresses().front() == worker->address, "createThread should execute the resolved worker entrypoint");
+        expect(script.dealloc("worker"), "createThread worker should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.create_thread"), "createThread script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.aob.missing");
+        AssemblyScript program(script);
+
+        expectThrows(
+            [&] {
+                (void)program.execute(R"(
+aobScanModule(injection, game.exe, 41 42 13 37)
+)");
+            },
+            "line 2");
     }
 
     {

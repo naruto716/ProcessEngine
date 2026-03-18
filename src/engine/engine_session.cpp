@@ -278,13 +278,17 @@ bool EngineSession::assertBytes(core::Address address, std::string_view pattern)
     return parsed.matches(bytes);
 }
 
+void EngineSession::writeBytes(core::Address address, std::span<const std::byte> bytes) {
+    detail::writeWithTemporaryProtection(*process_, address, bytes);
+}
+
 void EngineSession::readMem(core::Address sourceAddress, core::Address destinationAddress, std::size_t size) {
     if (size == 0) {
         throw std::invalid_argument("readMem size must be greater than zero");
     }
 
     const auto bytes = process_->read(sourceAddress, size);
-    detail::writeWithTemporaryProtection(*process_, destinationAddress, bytes);
+    writeBytes(destinationAddress, bytes);
 }
 
 void EngineSession::executeCode(core::Address entryAddress) {

@@ -1,6 +1,6 @@
 # Usage
 
-See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Assembly And Labels](assembly.md) | [Pointers](pointers.md) | [Patching](patching.md)
+See also: [Wiki Home](README.md) | [Architecture](architecture.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md)
 
 This page shows the normal way to use `hexengine` from native application code.
 
@@ -255,12 +255,118 @@ Supported script directives today:
 - `alloc(name[, size[, nearAddress]])`
 - `globalAlloc(name[, size[, nearAddress]])`
 - `dealloc(name)`
+- `aobScan(name, pattern)`
+- `aobScanModule(name, module, pattern)`
+- `aobScanRegion(name, start, stop, pattern)`
+- `fullAccess(address, size)`
+- `createThread(entry)`
 - `registerSymbol(name)`
 - `unregisterSymbol(name)`
 
 If `size` is omitted for `alloc(...)` or `globalAlloc(...)`, the current default is `0x1000`.
 
-## 10. Change Protection
+## 10. Build A Manual Hook
+
+The current hook workflow is CE-like and scan-driven:
+
+1. find the hook site
+2. decide the overwrite length yourself
+3. bind an explicit `returnhere` script label
+4. let `AssemblyScript` scan the site, allocate a cave near it, and patch it
+5. restore the hook site manually on disable
+
+Minimal example:
+
+```cpp
+const auto hits = session->aobScanModule("game.exe", "41 42 13 37 C0 D? 7A E1 5B AD F0 0D 55 AA 11 99");
+if (hits.empty()) {
+    throw std::runtime_error("Hook pattern not found");
+}
+
+const auto hookAddress = hits.front();
+constexpr std::size_t kOverwriteLength = 5;
+const auto originalBytes = session->process().read(hookAddress, kOverwriteLength);
+
+auto& script = session->createScriptContext("feature.hp_hook");
+script.declareLabel("returnhere");
+script.bindLabel("returnhere", hookAddress + kOverwriteLength);
+
+hexengine::engine::AssemblyScript program(script);
+program.execute(R"(
+aobScanModule(injection, game.exe, 41 42 13 37 C0 D? 7A E1 5B AD F0 0D 55 AA 11 99)
+alloc(newmem, 0x1000, injection)
+registerSymbol(newmem)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+)");
+
+// disable
+session->process().write(hookAddress, originalBytes);
+script.dealloc("newmem");
+session->destroyScriptContext("feature.hp_hook");
+```
+
+Important current limitation:
+
+- direct raw-site assembly through `AssemblyScript` does not create a `PatchRecord`
+- it also does not automatically preserve original bytes or validate expected bytes
+- hook-site restore is still manual today
+- the assembled write itself now handles temporary page-protection changes automatically, so `fullAccess(...)` is optional rather than required
+
+For the full model and caveats, see [Hooks](hooks.md).
+
+## 11. Safe Writes Without Manual `fullAccess`
+
+If you need to write bytes directly from host code without manually changing protection first, use:
+
+```cpp
+session->writeBytes(address, bytes);
+```
+
+Current behavior:
+
+- if the target region is already writable, it writes directly
+- otherwise it temporarily makes the range writable
+- after the write, it restores the previous protection
+
+`AssemblyScript` patch writes and `readMem(...)` use the same temporary-protection policy.
+
+## 12. Run A Thread Stub From `AssemblyScript`
+
+`AssemblyScript` can execute a resolved entrypoint with:
+
+```asm
+createThread(worker)
+```
+
+Example:
+
+```cpp
+std::ostringstream scriptSource;
+scriptSource << "alloc(worker, 0x100)\n"
+             << "worker:\n"
+             << "  mov rax, " << std::showbase << std::hex << writableAddress << "\n"
+             << "  mov byte ptr [rax], 0x5B\n"
+             << "  xor eax, eax\n"
+             << "  ret\n"
+             << "createThread(worker)\n";
+
+hexengine::engine::AssemblyScript program(script);
+program.execute(scriptSource.str());
+```
+
+Current behavior:
+
+- the active chunk is flushed first
+- `worker` resolves through the script context
+- `EngineSession::executeCode(...)` is called with that address
+
+## 13. Change Protection
 
 ```cpp
 session->fullAccess(address, size);
@@ -272,7 +378,7 @@ Or use the backend directly if you want specific protection flags:
 session->process().protect(address, size, hexengine::core::ProtectionFlags::Read | hexengine::core::ProtectionFlags::Write);
 ```
 
-## 11. Copy Bytes With `readMem`
+## 14. Copy Bytes With `readMem`
 
 `readMem` is the CE-style byte-copy helper:
 
@@ -287,7 +393,7 @@ In `hexengine`, this means:
 - temporarily make the destination writable if needed
 - restore the previous protection after the write
 
-## 12. Execute Remote Code
+## 15. Execute Remote Code
 
 `executeCode` is the engine-level "run this entrypoint inside the target process" operation:
 
@@ -302,7 +408,7 @@ At the common engine interface level, this only means:
 
 The backend decides how to do that. In the Win32 backend, this is implemented with `CreateRemoteThread`.
 
-## 13. Apply And Restore Patches
+## 16. Apply And Restore Patches
 
 Byte patch:
 
@@ -369,7 +475,6 @@ int main() {
     });
 
     session->registerSymbol("player_base", cave.address);
-    session->fullAccess(hookAddress, 16);
 
     const std::array<std::byte, 5> patch{
         std::byte{0x90},

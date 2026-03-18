@@ -47,6 +47,7 @@ void runTests() {
     {
         auto backend = std::make_unique<FakeProcessBackend>(8);
         const Address caveBase = 0x7FF0'0000'0000ull;
+        backend->addModule("test64_a.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 256);
 
@@ -75,6 +76,7 @@ void runTests() {
     {
         auto backend = std::make_unique<FakeProcessBackend>(8);
         const Address caveBase = 0x1000;
+        backend->addModule("test64_b.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 256);
         auto& a = ra.assembler();
@@ -96,6 +98,7 @@ void runTests() {
     {
         auto backend = std::make_unique<FakeProcessBackend>(8);
         const Address caveBase = 0x2000;
+        backend->addModule("test64_c.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 256);
         auto& a = ra.assembler();
@@ -119,6 +122,7 @@ void runTests() {
     {
         auto backend = std::make_unique<FakeProcessBackend>(4);
         const Address caveBase = 0x0040'0000;
+        backend->addModule("test32.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 64);
         auto& a = ra.assembler();
@@ -138,6 +142,7 @@ void runTests() {
     {
         auto backend = std::make_unique<FakeProcessBackend>(8);
         const Address caveBase = 0x3000;
+        backend->addModule("overflow.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 2);
         auto& a = ra.assembler();
@@ -162,6 +167,7 @@ void runTests() {
         auto backend = std::make_unique<FakeProcessBackend>(8);
         const Address caveBase = 0x7FF0'0001'0000ull;
         const Address jumpTarget = 0x7FF0'0002'0000ull;
+        backend->addModule("jump.exe", caveBase, 0x1000);
 
         RemoteAssembler ra(*backend, caveBase, 256);
         auto& a = ra.assembler();

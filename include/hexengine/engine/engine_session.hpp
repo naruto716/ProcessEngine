@@ -75,6 +75,7 @@ public:
         core::Address stopAddress,
         std::string_view pattern) const;
     [[nodiscard]] bool assertBytes(core::Address address, std::string_view pattern) const;
+    void writeBytes(core::Address address, std::span<const std::byte> bytes);
     void readMem(core::Address sourceAddress, core::Address destinationAddress, std::size_t size);
     void executeCode(core::Address entryAddress);
     [[nodiscard]] core::ProtectionChange fullAccess(core::Address address, std::size_t size);

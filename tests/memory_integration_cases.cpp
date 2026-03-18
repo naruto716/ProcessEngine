@@ -309,6 +309,19 @@ void verifyRuntimeAllocationAndPatchFlow(IntegrationContext& context) {
     expect(localReadOnlyRegion.has_value(), "Read-only local region query failed");
     expect(!localReadOnlyRegion->isWritable(), "Local allocation should be read-only before the NOP patch");
 
+    const std::array<std::byte, 4> directWriteBytes{
+        std::byte{0x11},
+        std::byte{0x22},
+        std::byte{0x33},
+        std::byte{0x44},
+    };
+    engine.writeBytes(localAllocation.address + 0x20, directWriteBytes);
+    const auto directWriteRoundTrip = process.read(localAllocation.address + 0x20, directWriteBytes.size());
+    expect(equalsBytes(directWriteRoundTrip, directWriteBytes), "writeBytes did not update the read-only target");
+    const auto regionAfterDirectWrite = process.query(localAllocation.address);
+    expect(regionAfterDirectWrite.has_value(), "Region query after writeBytes failed");
+    expect(!regionAfterDirectWrite->isWritable(), "writeBytes should restore the original protection after writing");
+
     engine.readMem(manifest.modulePatternAddress, readMemDestination, manifest.modulePatternSize);
     const auto readMemBytes = process.read(readMemDestination, manifest.modulePatternSize);
     expect(equalsBytes(readMemBytes, hexengine::tests::kModulePatternBytes), "readMem did not copy the expected bytes");
@@ -457,12 +470,8 @@ void verifyManualHookPipeline(IntegrationContext& context) {
     const auto& manifest = context.manifest;
     const auto& mainModule = context.mainModule;
 
-    const auto hits = engine.aobScanModule(mainModule.name, hexengine::tests::kModulePatternWildcardText);
-    expect(containsAddress(hits, manifest.modulePatternAddress), "Hook pipeline scan should find the module pattern");
-
     const auto hookAddress = manifest.modulePatternAddress;
     const auto originalHookBytes = process.read(hookAddress, 5);
-    (void)engine.fullAccess(hookAddress, 16);
 
     auto& hookScript = engine.createScriptContext("integration.manual.hook");
     hookScript.declareLabel("returnhere");
@@ -470,19 +479,17 @@ void verifyManualHookPipeline(IntegrationContext& context) {
 
     AssemblyScript program(hookScript);
 
-    std::ostringstream hookExpression;
-    hookExpression << mainModule.name << "+0x" << std::hex << (hookAddress - mainModule.base);
-
     const auto result = program.execute([&] {
         std::ostringstream scriptSource;
-        scriptSource << "alloc(integration.hook.cave, 0x100, " << hookExpression.str() << ")\n"
+        scriptSource << "aobScanModule(integration.hook.site, " << mainModule.name << ", " << hexengine::tests::kModulePatternWildcardText << ")\n"
+                     << "alloc(integration.hook.cave, 0x100, integration.hook.site)\n"
                      << "registerSymbol(integration.hook.cave)\n"
                      << '\n'
                      << "integration.hook.cave:\n"
                      << "  nop\n"
                      << "  jmp returnhere\n"
                      << '\n'
-                     << hookExpression.str() << ":\n"
+                     << "integration.hook.site:\n"
                      << "  jmp integration.hook.cave\n";
         return scriptSource.str();
     }());
@@ -491,6 +498,9 @@ void verifyManualHookPipeline(IntegrationContext& context) {
 
     const auto cave = hookScript.findLocalAllocation("integration.hook.cave");
     expect(cave.has_value(), "Manual hook pipeline should create the hook cave");
+    const auto scannedHookSite = hookScript.findLabel("integration.hook.site");
+    expect(scannedHookSite.has_value(), "aobScanModule should bind the hook-site label into script scope");
+    expect(*scannedHookSite == hookAddress, "aobScanModule should resolve the real hook-site address");
     expect(distance(cave->address, hookAddress) <= 0x8000'0000ull, "Hook cave should remain within rel32 jump range");
 
     const auto published = engine.resolveSymbol("integration.hook.cave");
@@ -516,6 +526,35 @@ void verifyManualHookPipeline(IntegrationContext& context) {
     expect(hookScript.dealloc("integration.hook.cave"), "Manual hook pipeline should deallocate the hook cave");
     expect(!engine.resolveSymbol("integration.hook.cave").has_value(), "Deallocating the hook cave should unregister the linked symbol");
     expect(engine.destroyScriptContext("integration.manual.hook"), "Manual hook script context destroy failed");
+}
+
+void verifyAssemblyScriptCreateThread(IntegrationContext& context) {
+    using namespace hexengine::engine;
+
+    auto& process = *context.process;
+    auto& engine = *context.engine;
+    const auto& manifest = context.manifest;
+
+    process.writeValue<std::byte>(manifest.writableBufferAddress, std::byte{0x00});
+
+    auto& script = engine.createScriptContext("integration.create_thread");
+    AssemblyScript program(script);
+
+    std::ostringstream scriptSource;
+    scriptSource << "alloc(integration.thread.stub, 0x100)\n"
+                 << "integration.thread.stub:\n"
+                 << "  mov rax, " << std::showbase << std::hex << manifest.writableBufferAddress << "\n"
+                 << "  mov byte ptr [rax], 0x5B\n"
+                 << "  xor eax, eax\n"
+                 << "  ret\n"
+                 << "createThread(integration.thread.stub)\n";
+
+    const auto result = program.execute(scriptSource.str());
+    expect(result.segments.size() == 1, "createThread integration script should emit one worker segment");
+    waitForByteValue(process, manifest.writableBufferAddress, std::byte{0x5B}, 2s);
+
+    expect(script.dealloc("integration.thread.stub"), "createThread integration stub should be deallocatable");
+    expect(engine.destroyScriptContext("integration.create_thread"), "createThread integration context destroy failed");
 }
 
 void verifyGlobalAllocationLifecycle(IntegrationContext& context) {
@@ -560,6 +599,7 @@ void runMemoryIntegration(const fs::path& targetPath) {
     verifyRuntimeAllocationAndPatchFlow(context);
     verifyAssemblyScriptFlow(context);
     verifyManualHookPipeline(context);
+    verifyAssemblyScriptCreateThread(context);
     verifyGlobalAllocationLifecycle(context);
 }
 

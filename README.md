@@ -24,7 +24,7 @@ The old Visual Studio install was the broken one. The current 2026 install is us
 - `CMakeLists.txt`: the main CMake project file
 - `CMakePresets.json`: named configure/build presets for both MSVC and MinGW
 - `docs/README.md`: wiki home for the engine docs
-- `docs/*.md`: usage, architecture, pointers, backend, and testing guides
+- `docs/*.md`: usage, architecture, hooks, pointers, backend, and testing guides
 - `include/hexengine/core/*`: engine-neutral value types and pattern parsing
 - `include/hexengine/backend/*`: backend interfaces
 - `include/hexengine/backends/win32/*`: the current Win32 user-mode backend
@@ -119,6 +119,7 @@ The project now builds the `hexengine_engine` library. The memory subsystem is s
 - `hexengine::engine::AllocationRepository`: allocation state storage
 - `hexengine::engine::AllocationService`: session-global / `globalAlloc`-style allocation behavior on top of a backend
 - `hexengine::engine::ScriptContext`: persistent CE-style local script scope for local alloc names, labels, and symbols shared across related scripts such as enable/disable
+- `hexengine::engine::AssemblyScript`: CE-like multi-target assembly scheduler built on top of `ScriptContext` and `TextAssembler`
 - `hexengine::engine::EngineSession`: the main reusable session object that composes a backend, scanner, symbols, and allocation services
 - `hexengine::engine::IEngineFactory`: abstract factory seam for engine session construction
 - `hexengine::engine::Win32EngineFactory`: the current concrete factory for Win32-backed `EngineSession` instances
@@ -130,6 +131,15 @@ This split is the production-oriented seam for future variations:
 - future driver-backed or kernel-assisted backends
 
 The smoke test in `src/main.cpp` attaches to the current process, allocates a page, writes bytes, registers symbols, scans for a pattern, and frees the allocation again.
+
+The current engine can also build **manual CE-style hooks** with:
+
+- AOB scan or direct address resolution
+- near cave allocation
+- explicit `returnhere` labels in `ScriptContext`
+- multi-target assembly through `AssemblyScript`
+
+Hook installation is still manual. The engine does not yet do automatic overwrite-length discovery, relocation, or trampoline synthesis for you.
 
 ## Running tests
 
