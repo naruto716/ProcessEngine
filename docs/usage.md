@@ -177,6 +177,8 @@ Labels are script-scoped: they persist as long as the `ScriptContext` exists, ju
 
 If you publish a script label with `registerSymbol(name)`, the resulting global symbol uses `SymbolKind::Label`.
 
+`AssemblyScript` also supports an explicit `label(name)` directive for cross-chunk labels such as CE-style `returnhere`.
+
 ## 8. Assemble Remote Code
 
 `TextAssembler` is the current text-assembly facade over AsmTK + AsmJit:
@@ -258,6 +260,7 @@ Supported script directives today:
 - `aobScan(name, pattern)`
 - `aobScanModule(name, module, pattern)`
 - `aobScanRegion(name, start, stop, pattern)`
+- `label(name)`
 - `fullAccess(address, size)`
 - `createThread(entry)`
 - `registerSymbol(name)`
@@ -271,7 +274,7 @@ The current hook workflow is CE-like and scan-driven:
 
 1. find the hook site
 2. decide the overwrite length yourself
-3. bind an explicit `returnhere` script label
+3. declare `label(returnhere)` in the script
 4. let `AssemblyScript` scan the site, allocate a cave near it, and patch it
 5. restore the hook site manually on disable
 
@@ -284,17 +287,15 @@ if (hits.empty()) {
 }
 
 const auto hookAddress = hits.front();
-constexpr std::size_t kOverwriteLength = 5;
-const auto originalBytes = session->process().read(hookAddress, kOverwriteLength);
+const auto originalBytes = session->process().read(hookAddress, 8);
 
 auto& script = session->createScriptContext("feature.hp_hook");
-script.declareLabel("returnhere");
-script.bindLabel("returnhere", hookAddress + kOverwriteLength);
 
 hexengine::engine::AssemblyScript program(script);
 program.execute(R"(
 aobScanModule(injection, game.exe, 41 42 13 37 C0 D? 7A E1 5B AD F0 0D 55 AA 11 99)
 alloc(newmem, 0x1000, injection)
+label(returnhere)
 registerSymbol(newmem)
 
 newmem:
@@ -303,6 +304,9 @@ newmem:
 
 injection:
   jmp newmem
+  nop
+  nop
+returnhere:
 )");
 
 // disable

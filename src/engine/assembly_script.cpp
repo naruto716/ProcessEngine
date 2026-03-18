@@ -1,5 +1,6 @@
 #include "hexengine/engine/assembly_script.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <memory>
 #include <optional>
@@ -30,6 +31,7 @@ enum class DirectiveKind {
     AobScanRegion,
     FullAccess,
     CreateThread,
+    Label,
     RegisterSymbol,
     UnregisterSymbol,
 };
@@ -50,9 +52,22 @@ struct SegmentTarget {
     std::optional<std::size_t> capacity = std::nullopt;
 };
 
+struct SegmentLine {
+    std::size_t lineNumber = 0;
+    std::string text;
+};
+
 struct ActiveSegment {
     AssemblyScriptSegment metadata;
-    std::unique_ptr<TextAssembler> assembler;
+    std::vector<SegmentLine> lines;
+    std::vector<std::string> exportedLabels;
+};
+
+struct PendingSegment {
+    AssemblyScriptSegment metadata;
+    std::vector<SegmentLine> lines;
+    std::vector<std::string> exportedLabels;
+    std::string lastError;
 };
 
 [[nodiscard]] std::string trimCopy(std::string_view text) {
@@ -89,6 +104,17 @@ struct ActiveSegment {
         return true;
     } catch (const std::exception&) {
         return false;
+    }
+}
+
+template <typename Container>
+void appendUnique(Container& values, std::string_view value) {
+    const auto folded = core::foldCaseAscii(value);
+    const auto exists = std::any_of(values.begin(), values.end(), [&](const auto& current) {
+        return core::foldCaseAscii(current) == folded;
+    });
+    if (!exists) {
+        values.emplace_back(value);
     }
 }
 
@@ -171,6 +197,8 @@ struct ActiveSegment {
         directive.kind = DirectiveKind::FullAccess;
     } else if (name == "createthread") {
         directive.kind = DirectiveKind::CreateThread;
+    } else if (name == "label") {
+        directive.kind = DirectiveKind::Label;
     } else if (name == "registersymbol") {
         directive.kind = DirectiveKind::RegisterSymbol;
     } else if (name == "unregistersymbol") {
@@ -303,40 +331,6 @@ void bindOrValidateScriptLabel(
         };
     } catch (const std::exception&) {
         return std::nullopt;
-    }
-}
-
-void flushActiveSegment(std::optional<ActiveSegment>& active, AssemblyScriptResult& result) {
-    if (!active.has_value()) {
-        return;
-    }
-
-    try {
-        active->metadata.emittedBytes = active->assembler->offset();
-        active->metadata.writtenBytes = active->assembler->flush();
-    } catch (const std::exception& exception) {
-        std::ostringstream stream;
-        stream << "AssemblyScript: flush failed for target '" << active->metadata.targetExpression
-               << "' (started at line " << active->metadata.firstLine << "): "
-               << exception.what();
-        throw std::runtime_error(stream.str());
-    }
-
-    result.segments.push_back(active->metadata);
-    active.reset();
-}
-
-void appendAssemblyLine(ActiveSegment& active, std::string_view line, std::size_t lineNumber) {
-    try {
-        std::string text(line);
-        text.push_back('\n');
-        active.assembler->append(text);
-    } catch (const std::exception& exception) {
-        std::ostringstream stream;
-        stream << "AssemblyScript: line " << lineNumber
-               << " in target '" << active.metadata.targetExpression
-               << "': " << exception.what();
-        throw std::runtime_error(stream.str());
     }
 }
 
@@ -480,6 +474,18 @@ void executeDirective(
         return;
     }
 
+    case DirectiveKind::Label:
+        if (directive.args.size() != 1) {
+            throwLineError(lineNumber, "label expects exactly 1 argument");
+        }
+
+        if (script.findLocalAllocation(directive.args[0]) || script.session().findGlobalAllocation(directive.args[0])) {
+            return;
+        }
+
+        script.resetLabel(directive.args[0]);
+        return;
+
     case DirectiveKind::RegisterSymbol:
         if (directive.args.size() != 1) {
             throwLineError(lineNumber, "registerSymbol expects exactly 1 argument");
@@ -496,7 +502,7 @@ void executeDirective(
     }
 }
 
-[[nodiscard]] ActiveSegment startSegment(ScriptContext& script, const SegmentTarget& target, std::size_t lineNumber) {
+[[nodiscard]] ActiveSegment startSegment(const SegmentTarget& target, std::size_t lineNumber) {
     ActiveSegment active;
     active.metadata = AssemblyScriptSegment{
         .targetExpression = target.expression,
@@ -505,13 +511,143 @@ void executeDirective(
         .firstLine = lineNumber,
     };
 
-    if (target.capacity.has_value()) {
-        active.assembler = std::make_unique<TextAssembler>(script, target.address, *target.capacity);
-    } else {
-        active.assembler = std::make_unique<TextAssembler>(script, target.address);
+    return active;
+}
+
+[[nodiscard]] bool isDeferredChunkError(std::string_view message) {
+    return message.find("TextAssembler: script label is not bound: ") != std::string_view::npos;
+}
+
+void appendAssemblyLine(ActiveSegment& active, std::string_view line, std::size_t lineNumber) {
+    std::string text(line);
+    text.push_back('\n');
+    active.lines.push_back(SegmentLine{
+        .lineNumber = lineNumber,
+        .text = std::move(text),
+    });
+}
+
+template <typename BoundSet>
+[[nodiscard]] bool tryAssembleSegment(
+    ScriptContext& script,
+    const ActiveSegment& segment,
+    AssemblyScriptResult& result,
+    BoundSet& boundExportedLabels,
+    std::string* deferredError) {
+    try {
+        auto assembler = segment.metadata.capacity.has_value()
+            ? std::make_unique<TextAssembler>(script, segment.metadata.address, *segment.metadata.capacity)
+            : std::make_unique<TextAssembler>(script, segment.metadata.address);
+
+        for (const auto& line : segment.lines) {
+            try {
+                assembler->append(line.text);
+            } catch (const std::exception& exception) {
+                std::ostringstream stream;
+                stream << "AssemblyScript: line " << line.lineNumber
+                       << " in target '" << segment.metadata.targetExpression
+                       << "': " << exception.what();
+                const auto message = stream.str();
+                if (deferredError != nullptr && isDeferredChunkError(message)) {
+                    *deferredError = message;
+                    return false;
+                }
+                throw std::runtime_error(message);
+            }
+        }
+
+        auto completed = segment.metadata;
+        try {
+            completed.emittedBytes = assembler->offset();
+            completed.writtenBytes = assembler->flush();
+        } catch (const std::exception& exception) {
+            std::ostringstream stream;
+            stream << "AssemblyScript: flush failed for target '" << completed.targetExpression
+                   << "' (started at line " << completed.firstLine << "): "
+                   << exception.what();
+            throw std::runtime_error(stream.str());
+        }
+
+        for (const auto& labelName : segment.exportedLabels) {
+            const auto folded = core::foldCaseAscii(labelName);
+            if (!boundExportedLabels.insert(folded).second) {
+                throw std::runtime_error(
+                    "AssemblyScript: explicit script label defined more than once: " + labelName);
+            }
+
+            const auto address = assembler->labelAddress(labelName);
+            if (!address.has_value()) {
+                throw std::runtime_error(
+                    "AssemblyScript: explicit script label was declared but not bound in target '" +
+                    completed.targetExpression + "': " + labelName);
+            }
+
+            script.setLabelAddress(labelName, *address);
+        }
+
+        result.segments.push_back(std::move(completed));
+        return true;
+    } catch (const std::exception& exception) {
+        if (deferredError != nullptr && isDeferredChunkError(exception.what())) {
+            *deferredError = exception.what();
+            return false;
+        }
+        throw;
+    }
+}
+
+template <typename BoundSet>
+void flushActiveSegment(
+    ScriptContext& script,
+    std::optional<ActiveSegment>& active,
+    std::vector<PendingSegment>& pending,
+    AssemblyScriptResult& result,
+    BoundSet& boundExportedLabels) {
+    if (!active.has_value()) {
+        return;
     }
 
-    return active;
+    std::string deferredError;
+    if (!tryAssembleSegment(script, *active, result, boundExportedLabels, &deferredError)) {
+        pending.push_back(PendingSegment{
+            .metadata = std::move(active->metadata),
+            .lines = std::move(active->lines),
+            .exportedLabels = std::move(active->exportedLabels),
+            .lastError = std::move(deferredError),
+        });
+    }
+
+    active.reset();
+}
+
+template <typename BoundSet>
+void drainPendingSegments(
+    ScriptContext& script,
+    std::vector<PendingSegment>& pending,
+    AssemblyScriptResult& result,
+    BoundSet& boundExportedLabels) {
+    bool progressed = true;
+    while (progressed) {
+        progressed = false;
+
+        for (auto iterator = pending.begin(); iterator != pending.end();) {
+            ActiveSegment attempt{
+                .metadata = iterator->metadata,
+                .lines = iterator->lines,
+                .exportedLabels = iterator->exportedLabels,
+            };
+
+            std::string deferredError;
+            if (tryAssembleSegment(script, attempt, result, boundExportedLabels, &deferredError)) {
+                iterator = pending.erase(iterator);
+                progressed = true;
+                continue;
+            }
+
+            iterator->lastError = std::move(deferredError);
+            ++iterator;
+        }
+    }
 }
 
 }  // namespace
@@ -531,6 +667,8 @@ const ScriptContext& AssemblyScript::script() const noexcept {
 AssemblyScriptResult AssemblyScript::execute(std::string_view source) {
     AssemblyScriptResult result;
     std::optional<ActiveSegment> active;
+    std::vector<PendingSegment> pending;
+    std::unordered_set<std::string, core::CaseInsensitiveStringHash, core::CaseInsensitiveStringEqual> boundExportedLabels;
 
     std::size_t lineNumber = 0;
     std::size_t offset = 0;
@@ -546,16 +684,19 @@ AssemblyScriptResult AssemblyScript::execute(std::string_view source) {
         if (!line.empty()) {
             if (const auto directive = tryParseDirective(line)) {
                 try {
-                    flushActiveSegment(active, result);
+                    flushActiveSegment(script_, active, pending, result, boundExportedLabels);
+                    drainPendingSegments(script_, pending, result, boundExportedLabels);
                     executeDirective(script_, *directive, lineNumber);
+                    drainPendingSegments(script_, pending, result, boundExportedLabels);
                 } catch (const std::exception& exception) {
                     throw std::runtime_error(exception.what());
                 }
             } else if (const auto header = tryParseLabelHeader(line)) {
                 if (const auto target = tryResolveHeaderTarget(script_, header->expression)) {
                     try {
-                        flushActiveSegment(active, result);
-                        active = startSegment(script_, *target, lineNumber);
+                        flushActiveSegment(script_, active, pending, result, boundExportedLabels);
+                        drainPendingSegments(script_, pending, result, boundExportedLabels);
+                        active = startSegment(*target, lineNumber);
                         if (!header->remainder.empty()) {
                             appendAssemblyLine(*active, header->remainder, lineNumber);
                         }
@@ -578,6 +719,9 @@ AssemblyScriptResult AssemblyScript::execute(std::string_view source) {
                             "internal asm label '" + header->expression + "' cannot appear before any current address");
                     }
 
+                    if (script_.hasLabel(header->expression)) {
+                        appendUnique(active->exportedLabels, header->expression);
+                    }
                     appendAssemblyLine(*active, line, lineNumber);
                 }
             } else {
@@ -596,7 +740,8 @@ AssemblyScriptResult AssemblyScript::execute(std::string_view source) {
     }
 
     try {
-        flushActiveSegment(active, result);
+        flushActiveSegment(script_, active, pending, result, boundExportedLabels);
+        drainPendingSegments(script_, pending, result, boundExportedLabels);
     } catch (const std::exception& exception) {
         if (std::string_view(exception.what()).find("AssemblyScript:") == 0) {
             throw;
@@ -604,6 +749,14 @@ AssemblyScriptResult AssemblyScript::execute(std::string_view source) {
 
         throw std::runtime_error(std::string("AssemblyScript: ") + exception.what());
     }
+
+    if (!pending.empty()) {
+        throw std::runtime_error(pending.front().lastError);
+    }
+
+    std::sort(result.segments.begin(), result.segments.end(), [](const AssemblyScriptSegment& left, const AssemblyScriptSegment& right) {
+        return left.firstLine < right.firstLine;
+    });
 
     return result;
 }

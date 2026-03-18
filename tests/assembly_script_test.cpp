@@ -242,6 +242,57 @@ game.exe+0x200:
         auto backend = std::make_unique<FakeProcessBackend>(8);
         auto* fake = backend.get();
         fake->addModule("game.exe", 0x1400'0000ull);
+
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.hook.explicit.label");
+        AssemblyScript program(script);
+
+        const auto hookAddress = session.resolveAddress("game.exe+0x240");
+        const auto result = program.execute(R"(
+alloc(newmem, 0x100, game.exe+0x240)
+label(returnhere)
+
+newmem:
+  nop
+  jmp returnhere
+
+game.exe+0x240:
+  jmp newmem
+  nop
+  nop
+returnhere:
+)");
+
+        expect(result.segments.size() == 2, "Explicit cross-chunk label hook should emit a cave segment and a patch segment");
+
+        const auto newmem = script.findLocalAllocation("newmem");
+        expect(newmem.has_value(), "Explicit-label hook should create the cave allocation");
+        const auto returnhere = script.findLabel("returnhere");
+        expect(returnhere.has_value(), "Explicit label should be committed into script scope after assembly");
+        expect(*returnhere == hookAddress + result.segments[1].emittedBytes, "Explicit label should resolve to the end of the hook-site chunk");
+
+        const auto caveBytes = fake->read(newmem->address, result.segments[0].emittedBytes);
+        const auto caveJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            newmem->address + 1,
+            std::span<const std::byte>(caveBytes).subspan(1));
+        expect(caveJumpTarget.has_value(), "Explicit-label cave should contain a decodable jump");
+        expect(*caveJumpTarget == *returnhere, "Explicit cross-chunk label should drive the cave jump target");
+
+        const auto hookBytes = fake->read(hookAddress, result.segments[1].emittedBytes);
+        const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            hookAddress,
+            std::span<const std::byte>(hookBytes));
+        expect(hookJumpTarget.has_value(), "Explicit-label hook site should contain a decodable jump");
+        expect(*hookJumpTarget == newmem->address, "Explicit-label hook site should still jump into the cave");
+
+        expect(script.dealloc("newmem"), "Explicit-label hook cave should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.hook.explicit.label"), "Explicit-label hook script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->addModule("game.exe", 0x1400'0000ull);
         EngineSession session(std::move(backend));
         auto& script = session.createScriptContext("assembly.script.hook.unbound.return");
         AssemblyScript program(script);
@@ -258,6 +309,34 @@ newmem:
             "script label is not bound");
         expect(script.dealloc("newmem"), "Failed hook cave alloc should still be deallocatable");
         expect(session.destroyScriptContext("assembly.script.hook.unbound.return"), "Failed hook script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->addModule("game.exe", 0x1400'0000ull);
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.hook.implicit.return");
+        AssemblyScript program(script);
+
+        expectThrows(
+            [&] {
+                (void)program.execute(R"(
+alloc(newmem, 0x100, game.exe+0x280)
+
+newmem:
+  jmp returnhere
+
+game.exe+0x280:
+  jmp newmem
+  nop
+  nop
+returnhere:
+)");
+            },
+            "returnhere");
+        expect(script.dealloc("newmem"), "Implicit-return hook cave should still be deallocatable after failure");
+        expect(session.destroyScriptContext("assembly.script.hook.implicit.return"), "Implicit-return hook script context destroy should succeed");
     }
 
     {
@@ -345,6 +424,89 @@ injection:
 
         expect(script.dealloc("newmem"), "AOB-driven hook cave should be deallocatable");
         expect(session.destroyScriptContext("assembly.script.aob.hook"), "AOB-driven hook script context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        const Address moduleBase = 0x1400'0000ull;
+        const Address hookAddress = moduleBase + 0x2A0;
+        fake->addModule("game.exe", moduleBase, 0x1000);
+        fake->storeBytes(
+            hookAddress,
+            std::array{
+                std::byte{0x10},
+                std::byte{0x20},
+                std::byte{0x30},
+                std::byte{0x40},
+                std::byte{0x50},
+                std::byte{0x60},
+                std::byte{0x70},
+                std::byte{0x80},
+            });
+
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.aob.hook.explicit.label");
+        AssemblyScript program(script);
+
+        const auto result = program.execute(R"(
+aobScanModule(injection, game.exe, 10 20 30 40 50 60 70 80)
+alloc(newmem, 0x100, injection)
+label(returnhere)
+
+newmem:
+  nop
+  jmp returnhere
+
+injection:
+  jmp newmem
+  nop
+  nop
+returnhere:
+)");
+
+        expect(result.segments.size() == 2, "AOB-driven explicit-label hook should emit cave and hook-site segments");
+        const auto returnhere = script.findLabel("returnhere");
+        expect(returnhere.has_value(), "AOB-driven explicit label should bind into script scope");
+        expect(*returnhere == hookAddress + result.segments[1].emittedBytes, "AOB-driven explicit label should resolve to the post-hook address");
+
+        const auto newmem = script.findLocalAllocation("newmem");
+        expect(newmem.has_value(), "AOB-driven explicit-label hook should allocate the cave");
+        const auto caveBytes = fake->read(newmem->address, result.segments[0].emittedBytes);
+        const auto caveJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(
+            newmem->address + 1,
+            std::span<const std::byte>(caveBytes).subspan(1));
+        expect(caveJumpTarget.has_value(), "AOB-driven explicit-label cave should contain a decodable jump");
+        expect(*caveJumpTarget == *returnhere, "AOB-driven explicit label should drive the cave jump target");
+
+        expect(script.dealloc("newmem"), "AOB-driven explicit-label hook cave should be deallocatable");
+        expect(session.destroyScriptContext("assembly.script.aob.hook.explicit.label"), "AOB-driven explicit-label hook context destroy should succeed");
+    }
+
+    {
+        auto backend = std::make_unique<FakeProcessBackend>(8);
+        auto* fake = backend.get();
+        fake->addModule("game.exe", 0x1400'0000ull);
+        EngineSession session(std::move(backend));
+        auto& script = session.createScriptContext("assembly.script.explicit.label.missing");
+        AssemblyScript program(script);
+
+        expectThrows(
+            [&] {
+                (void)program.execute(R"(
+alloc(newmem, 0x100, game.exe+0x2C0)
+label(returnhere)
+
+newmem:
+  jmp returnhere
+
+game.exe+0x2C0:
+  jmp newmem
+)");
+            },
+            "script label is not bound: returnhere");
+        expect(script.dealloc("newmem"), "Missing explicit-label hook cave should still be deallocatable after failure");
+        expect(session.destroyScriptContext("assembly.script.explicit.label.missing"), "Missing explicit-label hook context destroy should succeed");
     }
 
     {

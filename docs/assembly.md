@@ -20,6 +20,7 @@ The short version is:
 - `alloc(name, ...)` also creates a same-name local label
 - `registerSymbol(name)` publishes a local label or alloc globally
 - `AssemblyScript` scans a CE-like source string and splits it into address-bound chunks
+- `label(name)` marks an explicit script label that may be defined in one chunk and referenced from another
 - `TextAssembler` uses AsmTK + AsmJit for one assembly pass
 - labels declared only inside assembly text stay private to that pass
 - local/global allocation teardown cleans up linked labels and symbols
@@ -132,6 +133,7 @@ and scan-driven hook source like:
 ```asm
 aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
 alloc(newmem, 0x100, injection)
+label(returnhere)
 
 newmem:
   nop
@@ -139,6 +141,9 @@ newmem:
 
 injection:
   jmp newmem
+  nop
+  nop
+returnhere:
 ```
 
 ## 1.6. Current-Address Rule
@@ -156,6 +161,7 @@ Practical consequences:
 - `aobScan(...)`, `aobScanModule(...)`, or `aobScanRegion(...)` can create a script label before a later `label:` line is seen
 - `game.exe+0x100:` starts a chunk at that resolved module-relative address
 - `loopbegin:` inside an active chunk stays an internal AsmTK/AsmJit label
+- `label(returnhere)` plus a later `returnhere:` lets `returnhere` cross chunk boundaries without promoting every implicit asm label into script scope
 
 This is why internal loop labels still work without being promoted into script scope.
 
@@ -503,13 +509,11 @@ What happens:
 ### Example F: Scan-driven manual hook with `returnhere`
 
 ```cpp
-script.declareLabel("returnhere");
-script.bindLabel("returnhere", hookAddress + 5);
-
 hexengine::engine::AssemblyScript program(script);
 program.execute(R"(
 aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
 alloc(newmem, 0x100, injection)
+label(returnhere)
 
 newmem:
   nop
@@ -517,14 +521,19 @@ newmem:
 
 injection:
   jmp newmem
+  nop
+  nop
+returnhere:
 )");
 ```
 
 Why this works:
 
 - `newmem` is alloc-backed and therefore already resolves before `newmem:` is seen
-- `returnhere` is a persistent script label, so the cave chunk can resolve it
+- `label(returnhere)` creates an explicit unbound script label
 - `aobScanModule(...)` binds `injection`, so `injection:` starts the hook-site chunk
+- `returnhere:` binds that explicit script label after the hook-site chunk is assembled
+- the cave chunk can then retry and resolve `returnhere`
 - assembled writes use temporary protection changes automatically if needed
 - internal labels inside the cave would still stay private to that chunk
 
@@ -544,6 +553,7 @@ Important limitations:
   - `aobScan(...)`
   - `aobScanModule(...)`
   - `aobScanRegion(...)`
+  - `label(...)`
   - `fullAccess(...)`
   - `createThread(...)`
   - `registerSymbol(...)`

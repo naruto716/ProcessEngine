@@ -81,6 +81,10 @@ std::size_t TextAssembler::capacity() const noexcept {
     return remote_.capacity();
 }
 
+std::optional<core::Address> TextAssembler::labelAddress(std::string_view name) const {
+    return remote_.labelAddress(name);
+}
+
 std::size_t TextAssembler::flush() {
     if (const auto unresolved = remote_.unresolvedLabelNames(); !unresolved.empty()) {
         throw std::runtime_error("TextAssembler: unresolved label(s): " + joinNames(unresolved));

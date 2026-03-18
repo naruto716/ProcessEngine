@@ -471,18 +471,16 @@ void verifyManualHookPipeline(IntegrationContext& context) {
     const auto& mainModule = context.mainModule;
 
     const auto hookAddress = manifest.modulePatternAddress;
-    const auto originalHookBytes = process.read(hookAddress, 5);
+    const auto originalHookBytes = process.read(hookAddress, 8);
 
     auto& hookScript = engine.createScriptContext("integration.manual.hook");
-    hookScript.declareLabel("returnhere");
-    hookScript.bindLabel("returnhere", hookAddress + 5);
-
     AssemblyScript program(hookScript);
 
     const auto result = program.execute([&] {
         std::ostringstream scriptSource;
         scriptSource << "aobScanModule(integration.hook.site, " << mainModule.name << ", " << hexengine::tests::kModulePatternWildcardText << ")\n"
                      << "alloc(integration.hook.cave, 0x100, integration.hook.site)\n"
+                     << "label(returnhere)\n"
                      << "registerSymbol(integration.hook.cave)\n"
                      << '\n'
                      << "integration.hook.cave:\n"
@@ -490,7 +488,10 @@ void verifyManualHookPipeline(IntegrationContext& context) {
                      << "  jmp returnhere\n"
                      << '\n'
                      << "integration.hook.site:\n"
-                     << "  jmp integration.hook.cave\n";
+                     << "  jmp integration.hook.cave\n"
+                     << "  nop\n"
+                     << "  nop\n"
+                     << "returnhere:\n";
         return scriptSource.str();
     }());
 
@@ -506,6 +507,9 @@ void verifyManualHookPipeline(IntegrationContext& context) {
     const auto published = engine.resolveSymbol("integration.hook.cave");
     expect(published.has_value(), "Manual hook pipeline should be able to publish the cave symbol");
     expect(published->address == cave->address, "Published hook cave symbol should point at the cave address");
+    const auto returnhere = hookScript.findLabel("returnhere");
+    expect(returnhere.has_value(), "Explicit hook return label should bind into script scope");
+    expect(*returnhere == hookAddress + result.segments[1].emittedBytes, "Hook return label should resolve to the end of the hook-site chunk");
 
     const auto caveBytes = process.read(cave->address, result.segments[0].emittedBytes);
     expect(caveBytes[0] == std::byte{0x90}, "Hook cave should preserve the manual instruction payload");
@@ -513,7 +517,7 @@ void verifyManualHookPipeline(IntegrationContext& context) {
         cave->address + 1,
         std::span<const std::byte>(caveBytes).subspan(1));
     expect(caveJumpTarget.has_value(), "Hook cave should end with a decodable jump back");
-    expect(*caveJumpTarget == hookAddress + 5, "Hook cave should jump back to the post-hook address");
+    expect(*caveJumpTarget == *returnhere, "Hook cave should jump back to the explicit post-hook label");
 
     const auto patchedHookBytes = process.read(hookAddress, result.segments[1].emittedBytes);
     const auto hookJumpTarget = hexengine::tests::support::decodeRelativeControlTarget(

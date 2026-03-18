@@ -39,6 +39,8 @@ public:
 
     void declareLabel(std::string_view name);
     void bindLabel(std::string_view name, core::Address address);
+    void resetLabel(std::string_view name);
+    void setLabelAddress(std::string_view name, core::Address address);
     [[nodiscard]] bool hasLabel(std::string_view name) const;
     [[nodiscard]] std::optional<core::Address> findLabel(std::string_view name) const;
     [[nodiscard]] std::vector<LabelRecord> listLabels() const;

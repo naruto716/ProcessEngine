@@ -34,6 +34,7 @@ public:
     [[nodiscard]] core::Address currentAddress() const noexcept;
     [[nodiscard]] std::size_t offset() const noexcept;
     [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] std::optional<core::Address> labelAddress(std::string_view name) const;
 
     std::size_t flush();
 

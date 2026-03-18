@@ -117,12 +117,13 @@ This is the focused CE-like scheduler test for:
 
 - `alloc(...)` / `globalAlloc(...)` / `dealloc(...)` directives in scanned script text
 - `aobScan(...)` / `aobScanModule(...)` / `aobScanRegion(...)` directives in scanned script text
+- `label(...)` directives in scanned script text
 - `fullAccess(...)` / `createThread(...)` directives in scanned script text
 - `registerSymbol(...)` / `unregisterSymbol(...)` directives in scanned script text
 - splitting a script into multiple assembly chunks when a `label:` or `expr:` line already resolves
 - keeping brand-new labels as internal assembler labels in the current chunk
 - assembling directly to raw patch sites like `game.exe+0x100:`
-- scan-driven manual hook scripts with explicit `returnhere` labels and jump-target verification
+- scan-driven manual hook scripts with explicit `label(returnhere)` cross-chunk labels and jump-target verification
 - scan-driven manual hook scripts succeeding without `fullAccess(...)`
 - failure modes such as:
   - instructions before any current address exists
@@ -131,6 +132,8 @@ This is the focused CE-like scheduler test for:
   - parse failures inside a chunk
   - unresolved internal assembler labels at flush time
   - unbound explicit return labels in a manual hook script
+  - explicit `label(returnhere)` declarations that are never defined
+  - implicit `returnhere:` labels that stay chunk-local and therefore cannot satisfy an earlier cave jump
   - missing AOB scan hits
 
 ## Scan Benchmark

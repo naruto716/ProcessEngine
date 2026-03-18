@@ -170,6 +170,36 @@ void ScriptContext::bindLabel(std::string_view name, core::Address address) {
     });
 }
 
+void ScriptContext::resetLabel(std::string_view name) {
+    detail::validateUserDefinedName(name, "Label");
+
+    const auto key = std::string(name);
+    if (const auto iterator = labels_.find(key); iterator != labels_.end()) {
+        iterator->second.address = std::nullopt;
+        return;
+    }
+
+    labels_.emplace(key, LabelRecord{
+        .name = key,
+        .address = std::nullopt,
+    });
+}
+
+void ScriptContext::setLabelAddress(std::string_view name, core::Address address) {
+    detail::validateUserDefinedName(name, "Label");
+
+    const auto key = std::string(name);
+    if (const auto iterator = labels_.find(key); iterator != labels_.end()) {
+        iterator->second.address = address;
+        return;
+    }
+
+    labels_.emplace(key, LabelRecord{
+        .name = key,
+        .address = address,
+    });
+}
+
 bool ScriptContext::hasLabel(std::string_view name) const {
     return labels_.find(std::string(name)) != labels_.end();
 }

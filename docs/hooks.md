@@ -17,6 +17,7 @@ This is not a "click one address and auto-build a trampoline" system. It is a ru
 You already have the pieces for a normal CE-style hook script:
 
 - `aobScan(...)`, `aobScanModule(...)`, `aobScanRegion(...)` inside `AssemblyScript`
+- `label(...)` inside `AssemblyScript`
 - optional `fullAccess(...)` inside `AssemblyScript`
 - `ScriptContext`
 - local `alloc(...)`
@@ -55,9 +56,7 @@ That is exactly the normal manual-hook workflow.
 
 ## 3. Recommended Hook Flow
 
-### Step 1: Resolve the return address in host code
-
-The current tested pattern is to let the script discover the injection site, but bind the jump-back target explicitly from host code:
+### Step 1: Keep the hook-site length explicit in the script
 
 ```cpp
 const auto hits = session->aobScanModule("game.exe", "41 42 13 37 C0 D? 7A E1 5B AD F0 0D 55 AA 11 99");
@@ -66,18 +65,14 @@ if (hits.empty()) {
 }
 
 const auto hookAddress = hits.front();
-constexpr std::size_t kOverwriteLength = 5;
-
 auto& script = session->createScriptContext("feature.hp_hook");
-script.declareLabel("returnhere");
-script.bindLabel("returnhere", hookAddress + kOverwriteLength);
 ```
 
-Why bind `returnhere` this way?
+The current tested pattern is to declare `returnhere` explicitly in the script:
 
-- the cave code and the hook-site patch are assembled in separate chunks
-- internal asm labels do not cross chunk boundaries
-- `returnhere` needs to resolve from the cave chunk
+- `label(returnhere)` marks it as a cross-chunk script label
+- `returnhere:` later binds it at the end of the hook-site chunk
+- the cave chunk can defer until that label is known
 
 ### Step 2: Let the script scan and patch
 
@@ -93,6 +88,7 @@ hexengine::engine::AssemblyScript program(script);
 const auto result = program.execute(R"(
 aobScanModule(injection, game.exe, 41 42 13 37 C0 DE 7A E1)
 alloc(newmem, 0x100, injection)
+label(returnhere)
 registerSymbol(newmem)
 
 newmem:
@@ -101,6 +97,9 @@ newmem:
 
 injection:
   jmp newmem
+  nop
+  nop
+returnhere:
 )");
 ```
 
@@ -108,9 +107,12 @@ What happens:
 
 - `aobScanModule(...)` binds `injection` into script scope
 - `alloc(newmem, ...)` creates the cave and a same-name script label
+- `label(returnhere)` creates an explicit cross-chunk script label in the unbound state
 - `newmem:` starts the cave chunk
-- `returnhere` resolves through `ScriptContext`
+- the cave chunk initially defers because `returnhere` is not bound yet
 - `injection:` starts the hook-site chunk because `injection` already resolves
+- `returnhere:` binds the explicit script label to the end of the hook-site chunk
+- the deferred cave chunk retries and now resolves `returnhere` through `ScriptContext`
 - `jmp newmem` resolves through the script-local alloc-backed label
 - the assembled cave and patch writes use temporary protection changes automatically if the target page is not writable
 
@@ -192,18 +194,15 @@ if (hits.empty()) {
 }
 
 const auto hookAddress = hits.front();
-constexpr std::size_t kOverwriteLength = 5;
-
-const auto originalBytes = session->process().read(hookAddress, kOverwriteLength);
+const auto originalBytes = session->process().read(hookAddress, 8);
 
 auto& script = session->createScriptContext("feature.hp_hook");
-script.declareLabel("returnhere");
-script.bindLabel("returnhere", hookAddress + kOverwriteLength);
 
 hexengine::engine::AssemblyScript program(script);
 program.execute(R"(
 aobScanModule(injection, game.exe, 41 42 13 37 C0 D? 7A E1 5B AD F0 0D 55 AA 11 99)
 alloc(newmem, 0x1000, injection)
+label(returnhere)
 registerSymbol(newmem)
 
 newmem:
@@ -212,6 +211,9 @@ newmem:
 
 injection:
   jmp newmem
+  nop
+  nop
+returnhere:
 )");
 
 // ... later, disable ...
@@ -273,12 +275,13 @@ Those tests verify:
 
 - `aobScanModule(...)` inside `AssemblyScript`
 - near cave allocation
-- explicit `returnhere` script-label binding
+- explicit `label(returnhere)` cross-chunk binding
 - cave assembly
 - hook-site jump assembly
 - jump target correctness
 - symbol publication for the cave
 - cleanup of the cave and linked symbols
-- failure when `returnhere` exists but is not bound
+- failure when `label(returnhere)` is declared but never defined
+- failure when `returnhere:` is only implicit and therefore remains chunk-local
 - `createThread(...)` flushing and executing a worker stub
 - `fullAccess(...)` still working as an explicit directive when callers do want persistent RWX
