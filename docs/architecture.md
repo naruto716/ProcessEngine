@@ -1,12 +1,12 @@
 # Architecture
 
-See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Testing](testing.md)
+See also: [Wiki Home](README.md) | [Getting Started](getting-started.md) | [Usage](usage.md) | [Assembly And Labels](assembly.md) | [Hooks](hooks.md) | [Pointers](pointers.md) | [Patching](patching.md) | [Backends](backends.md) | [Lua Runtime](lua.md) | [Desktop Host](desktop-host.md) | [Testing](testing.md)
 
 This page is the high-level map of `hexengine`.
 
 ## Mental Model
 
-Think of the project as 5 layers:
+Think of the project as 7 layers:
 
 1. `core`
 - neutral value types and pattern parsing
@@ -23,10 +23,20 @@ Think of the project as 5 layers:
 5. `lua`
 - CE-style scripting and timers above the engine
 
+6. `host`
+- native C ABI bridge over the engine and Lua runtime
+
+7. `desktop-ui`
+- WPF shell + WebView2 + React frontend
+
 At runtime, the stack looks like this:
 
 ```text
 caller
+  -> desktop host (optional)
+      -> React + MUI shell
+      -> WPF shell
+      -> host::hexengine_host.dll
   -> lua::LuaRuntime (optional)
   -> engine::Win32EngineFactory
       -> engine::EngineSession
@@ -54,6 +64,8 @@ Relevant code:
 - [`../include/hexengine/backends/win32/win32_process_backend.hpp`](../include/hexengine/backends/win32/win32_process_backend.hpp)
 - [`../include/hexengine/engine/engine_session.hpp`](../include/hexengine/engine/engine_session.hpp)
 - [`../include/hexengine/engine/win32_engine_factory.hpp`](../include/hexengine/engine/win32_engine_factory.hpp)
+- [`../include/hexengine/host/host_api.h`](../include/hexengine/host/host_api.h)
+- [`../host/HexEngine.WebViewTest/MainWindow.xaml`](../host/HexEngine.WebViewTest/MainWindow.xaml)
 
 ## Why It Is Split This Way
 
@@ -62,6 +74,7 @@ The split is there for practical reasons:
 - the engine should be reusable from a future app or webview host
 - the transport may change later
 - CE-like behavior should not be fused to Win32 code
+- the desktop shell should not own cheat/runtime behavior
 
 That is why:
 
@@ -70,6 +83,7 @@ That is why:
 - scanners and pointer walkers live above the backend
 - state lives in repositories, not in the raw backend
 - the Lua layer is kept above the engine instead of mixing Lua ownership into `ScriptContext`
+- the desktop shell sits above a tiny C ABI instead of binding directly to C++ classes
 
 ## Layer Summary
 
@@ -175,6 +189,43 @@ This layer provides:
 - timer scheduling
 - serialized Lua execution on one runtime thread
 - `autoAssemble(...)` bridged into `AssemblyScript`
+
+### `host`
+
+Files:
+
+- [`../include/hexengine/host/host_api.h`](../include/hexengine/host/host_api.h)
+- [`../src/host/host_api.cpp`](../src/host/host_api.cpp)
+
+This is the native interop seam for managed or other external hosts.
+
+It currently provides:
+
+- opaque runtime handles
+- UTF-8 string-based result transport
+- `LuaRuntime` execution through a C ABI
+- script destruction through a C ABI
+
+### `desktop-ui`
+
+Files:
+
+- [`../host/HexEngine.WebViewTest/HexEngine.WebViewTest.csproj`](../host/HexEngine.WebViewTest/HexEngine.WebViewTest.csproj)
+- [`../host/HexEngine.WebViewTest/MainWindow.xaml`](../host/HexEngine.WebViewTest/MainWindow.xaml)
+- [`../host/HexEngine.WebViewTest/MainWindow.xaml.cs`](../host/HexEngine.WebViewTest/MainWindow.xaml.cs)
+- [`../host/HexEngine.WebViewTest/NativeHexBridge.cs`](../host/HexEngine.WebViewTest/NativeHexBridge.cs)
+- [`../host/HexEngine.WebViewTest/WebAssetExtractor.cs`](../host/HexEngine.WebViewTest/WebAssetExtractor.cs)
+- [`../host/HexEngine.WebViewTest/ui/src/App.jsx`](../host/HexEngine.WebViewTest/ui/src/App.jsx)
+
+This layer currently provides:
+
+- a borderless WPF shell
+- WebView2 hosting
+- a local React + MUI UI
+- a native fallback panel when WebView2 Runtime is missing
+- a single-file publish shape for the desktop app
+
+For the detailed walkthrough, see [Desktop Host](desktop-host.md).
 
 ## Name Ownership Model
 
@@ -441,6 +492,35 @@ runtime thread
       -> callback sees the same script-scoped Lua globals
 ```
 
+### Desktop Host Request Flow
+
+```text
+React UI
+  -> postMessage JSON action
+      -> WPF host dispatcher
+          -> NativeHexBridge
+              -> hexengine_host.dll
+                  -> LuaRuntime::runGlobal / runScript
+                      -> EngineSession services
+  -> JSON response
+      -> WPF host
+          -> postMessage back into WebView
+              -> React state update
+```
+
+### Desktop Host Startup Flow
+
+```text
+launch WPF app
+  -> attach native bridge
+  -> extract embedded web bundle
+  -> try initialize WebView2
+      -> success:
+           -> load React UI
+      -> runtime missing:
+           -> show native fallback page
+```
+
 What is intentionally not in that flow yet:
 
 - automatic stolen-instruction relocation
@@ -453,3 +533,4 @@ What is intentionally not in that flow yet:
 - For normal engine use from app code: [Usage](usage.md)
 - For pointer-chain semantics: [Pointers](pointers.md)
 - For tests and benchmarks: [Testing](testing.md)
+- For the desktop shell and publish model: [Desktop Host](desktop-host.md)

@@ -128,6 +128,16 @@ target_compile_features(hexengine_lua PUBLIC cxx_std_20)
 target_include_directories(hexengine_lua PUBLIC include)
 target_link_libraries(hexengine_lua PUBLIC hexengine_engine lua::lua)
 
+add_library(hexengine_host SHARED
+    src/host/host_api.cpp
+)
+
+target_compile_features(hexengine_host PUBLIC cxx_std_20)
+target_include_directories(hexengine_host PUBLIC include)
+target_compile_definitions(hexengine_host PRIVATE HEXENGINE_HOST_BUILD)
+target_link_libraries(hexengine_host PUBLIC hexengine_lua)
+target_link_libraries(hexengine_host PRIVATE ole32)
+
 if (WIN32)
     target_compile_definitions(hexengine_engine PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
 else()
@@ -268,4 +278,17 @@ target_link_libraries(ce_lua_runtime_test PRIVATE hexengine_lua)
 add_test(
     NAME ce_lua_runtime
     COMMAND ce_lua_runtime_test
+)
+
+add_executable(ce_host_api_test
+    tests/host_api_test.cpp
+)
+
+target_compile_features(ce_host_api_test PRIVATE cxx_std_20)
+target_include_directories(ce_host_api_test PRIVATE include tests)
+target_link_libraries(ce_host_api_test PRIVATE hexengine_host)
+
+add_test(
+    NAME ce_host_api
+    COMMAND ce_host_api_test
 )

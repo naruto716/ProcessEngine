@@ -1,0 +1,233 @@
+<Window x:Class="HexEngine.WebViewTest.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        mc:Ignorable="d"
+        Title="HexEngine"
+        Width="1320"
+        Height="860"
+        MinWidth="1040"
+        MinHeight="720"
+        Background="#08111E"
+        ResizeMode="CanResize"
+        WindowStyle="None">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="ShellBrush" Color="#0B1423" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#111F33" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#8FA2BB" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#F5B056" />
+        <Style x:Key="ChromeButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#ECF2FF" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1B2A40" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#223450" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ActionButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#08111E" />
+            <Setter Property="Background" Value="#F5B056" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Padding" Value="18,10" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="12">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#FFC67A" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#D99841" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="{StaticResource ShellBrush}" BorderBrush="#1A2740" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="30" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0"
+                    Background="#0E1727"
+                    BorderBrush="#16243B"
+                    BorderThickness="0,0,0,1"
+                    MouseLeftButtonDown="TitleBar_OnMouseLeftButtonDown">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0">
+                        <Border Width="12" Height="12" CornerRadius="6" Background="{StaticResource AccentBrush}" Margin="0,0,10,0" />
+                        <StackPanel>
+                            <TextBlock Text="HexEngine" Foreground="#F3F7FF" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="Single-file WPF shell over WebView2 + native bridge"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Style="{StaticResource ChromeButtonStyle}" Click="DevToolsButton_OnClick" ToolTip="Open DevTools">&#xE70F;</Button>
+                        <Button Style="{StaticResource ChromeButtonStyle}" Click="MinimizeButton_OnClick" ToolTip="Minimize">&#xE921;</Button>
+                        <Button Style="{StaticResource ChromeButtonStyle}" Click="MaximizeButton_OnClick" ToolTip="Maximize or restore">&#xE922;</Button>
+                        <Button Style="{StaticResource ChromeButtonStyle}" Click="CloseButton_OnClick" ToolTip="Close">&#xE8BB;</Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1">
+                <wv2:WebView2 x:Name="Browser" Visibility="Collapsed" />
+
+                <Grid x:Name="FallbackPanel" Background="{StaticResource ShellBrush}" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Margin="40">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="0.8*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,48,0">
+                            <Border Width="54" Height="54" CornerRadius="27" Background="#1E2D44" Margin="0,0,0,18">
+                                <TextBlock Text="!" Foreground="{StaticResource AccentBrush}" FontSize="28" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="WebView2 Runtime required"
+                                       Foreground="#F4F8FF"
+                                       FontSize="34"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,14" />
+                            <TextBlock x:Name="FallbackMessageText"
+                                       TextWrapping="Wrap"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="15"
+                                       LineHeight="24"
+                                       MaxWidth="620"
+                                       Margin="0,0,0,22" />
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Open Microsoft download page"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="DownloadRuntimeButton_OnClick" />
+                                <Button Content="Retry"
+                                        Margin="12,0,0,0"
+                                        Padding="18,10"
+                                        Foreground="#F4F8FF"
+                                        Background="#1D304B"
+                                        BorderBrush="Transparent"
+                                        Click="RetryButton_OnClick" />
+                                <Button Content="Exit"
+                                        Margin="12,0,0,0"
+                                        Padding="18,10"
+                                        Foreground="#F4F8FF"
+                                        Background="Transparent"
+                                        BorderBrush="#31445F"
+                                        Click="ExitButton_OnClick" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Grid.Column="1"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="#22324B"
+                                BorderThickness="1"
+                                CornerRadius="24"
+                                Padding="24"
+                                VerticalAlignment="Center">
+                            <StackPanel>
+                                <TextBlock Text="Why this fallback exists"
+                                           Foreground="#F4F8FF"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,14" />
+                                <TextBlock TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="14"
+                                           LineHeight="22"
+                                           Text="This desktop shell is shipped as a single executable and keeps WebView2 out of the installer to avoid a 250+ MB payload. On the small number of machines that do not already have WebView2 Runtime, the app falls back to this native page and asks the user to install it from Microsoft." />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border Grid.Row="1"
+                            Background="#0E1727"
+                            BorderBrush="#16243B"
+                            BorderThickness="1,1,0,0"
+                            Padding="18,10">
+                        <TextBlock x:Name="FallbackDetailText"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <Border Grid.Row="2"
+                    Background="#0D1726"
+                    BorderBrush="#16243B"
+                    BorderThickness="0,1,0,0">
+                <Grid Margin="14,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="StatusText"
+                               Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center"
+                               FontSize="12" />
+                    <TextBlock x:Name="NativeBridgePathText"
+                               Grid.Column="1"
+                               Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="480" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

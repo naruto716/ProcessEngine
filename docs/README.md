@@ -25,6 +25,9 @@ This folder is the documentation home for `hexengine`.
 - [Lua Runtime](lua.md)
   CE-style Lua globals, script-scoped Lua state, timers, and `autoAssemble(...)` on top of the engine.
 
+- [Desktop Host](desktop-host.md)
+  Detailed walkthrough of the WPF shell, React + MUI frontend, native bridge DLL, single-file publish model, and WebView2-missing fallback.
+
 ## Learn The Codebase
 
 - [Architecture](architecture.md)
@@ -57,6 +60,7 @@ The engine currently covers:
 - named patch management
 - manual CE-style hook construction with scans, near caves, and explicit jump-back labels
 - a CE-shaped Lua runtime with script-scoped globals, typed memory helpers, timers, and `autoAssemble(...)`
+- a WPF + WebView2 desktop host with a React + MUI shell, native bridge DLL, single-file publish setup, and a native fallback page when WebView2 Runtime is missing
 
 AsmJit and AsmTK are used for remote code emission, but implicit assembler labels deliberately stay private to one assembly pass. The Lua layer sits above that engine behavior; it does not replace it.
 

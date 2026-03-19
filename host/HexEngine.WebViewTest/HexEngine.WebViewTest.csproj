@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <EnableDefaultItems>true</EnableDefaultItems>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <WebView2LoaderPreference>Static</WebView2LoaderPreference>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <NativeBridgeDir>$(MSBuildThisFileDirectory)..\..\build\msvc-debug\Debug\</NativeBridgeDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <NativeBridgeDir>$(MSBuildThisFileDirectory)..\..\build\msvc-release\Release\</NativeBridgeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(NativeBridgeDir)hexengine_host.dll')">
+    <Content Include="$(NativeBridgeDir)hexengine_host.dll">
+      <Link>hexengine_host.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Program.cs" />
+    <Compile Remove="MainForm.cs" />
+    <Resource Include="www\**\*" />
+  </ItemGroup>
+</Project>

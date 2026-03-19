@@ -154,6 +154,45 @@ This is the focused CE-style Lua test for:
 - one-shot `createTimer(interval, callback)` behavior
 - script teardown cancelling timers and dropping script-local Lua state
 
+## Host API Test
+
+File:
+
+- [`../tests/host_api_test.cpp`](../tests/host_api_test.cpp)
+
+This is the focused native-bridge smoke test for:
+
+- opening a bridge runtime against the current process
+- `hexengine_host_run_global(...)`
+- `hexengine_host_run_script(...)`
+- script-scoped Lua persistence through the host DLL
+- `hexengine_host_destroy_script(...)`
+
+This validates the C ABI that the desktop host uses, without needing to automate the WPF shell itself.
+
+## Desktop Host Build Verification
+
+The WPF/React desktop host currently has compile/publish verification rather than automated UI tests.
+
+Relevant files:
+
+- [`../host/HexEngine.WebViewTest/HexEngine.WebViewTest.csproj`](../host/HexEngine.WebViewTest/HexEngine.WebViewTest.csproj)
+- [`../host/HexEngine.WebViewTest/MainWindow.xaml`](../host/HexEngine.WebViewTest/MainWindow.xaml)
+- [`../host/HexEngine.WebViewTest/MainWindow.xaml.cs`](../host/HexEngine.WebViewTest/MainWindow.xaml.cs)
+- [`../host/HexEngine.WebViewTest/ui/src/App.jsx`](../host/HexEngine.WebViewTest/ui/src/App.jsx)
+
+Current verification done during development:
+
+- React bundle build through `npm run build`
+- WPF host build through `dotnet build`
+- one-EXE output shape through `dotnet publish`
+
+What is not automated yet:
+
+- interactive WebView UI testing
+- fallback-page UI automation
+- WPF window-behavior automation
+
 ## Scan Benchmark
 
 Files:

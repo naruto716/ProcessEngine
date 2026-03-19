@@ -26,6 +26,7 @@ The old Visual Studio install was the broken one. The current 2026 install is us
 - `docs/README.md`: wiki home for the engine docs
 - `docs/lua.md`: CE-style Lua runtime and timer model
 - `docs/*.md`: usage, architecture, hooks, pointers, backend, and testing guides
+- `host/HexEngine.WebViewTest/*`: WPF + WebView2 desktop shell with a React + MUI frontend, native bridge wrapper, single-file publish setup, and a native fallback page when WebView2 Runtime is missing
 - `include/hexengine/core/*`: engine-neutral value types and pattern parsing
 - `include/hexengine/backend/*`: backend interfaces
 - `include/hexengine/backends/win32/*`: the current Win32 user-mode backend
@@ -151,6 +152,21 @@ There is now also a CE-style Lua surface above the engine:
 - one persistent Lua environment per script id
 - a dedicated runtime thread that serializes script execution and timer callbacks
 - `createTimer(...)` support
+
+There is also now a separate C# desktop host under:
+
+- `host/HexEngine.WebViewTest`
+
+That host currently includes:
+
+- borderless WPF shell
+- WebView2 host
+- local React + MUI UI bundle
+- native fallback page when WebView2 Runtime is missing
+- JS -> WPF -> native bridge -> C++ engine JSON message flow
+- single-file publish configuration
+
+It is there to validate the real desktop presentation-layer shape on top of the native engine, not just a stub.
 
 ## Running tests
 
